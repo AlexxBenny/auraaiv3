@@ -14,29 +14,27 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from .agent_loop import AgentLoop
 from .context import SessionContext
 from tools.registry import get_registry
-from tools.system.screenshot import TakeScreenshot
+from tools.loader import load_all_tools
 
 
 class Assistant:
     """New agentic assistant - NO code execution"""
     
     def __init__(self):
-        # Initialize agent loop
-        self.agent_loop = AgentLoop()
-        
-        # Register tools
+        # Auto-discover and register all tools
         self._register_tools()
+        
+        # Initialize agent loop (after tools are registered)
+        self.agent_loop = AgentLoop()
         
         logging.info("Assistant initialized (agentic mode)")
     
     def _register_tools(self):
-        """Register all available tools"""
+        """Auto-discover and register all available tools"""
+        discovered = load_all_tools()
         registry = get_registry()
         
-        # Register system tools
-        registry.register(TakeScreenshot())
-        
-        logging.info(f"Registered {len(registry.list_all())} tools")
+        logging.info(f"Auto-registered {len(discovered)} tools from discovery")
     
     def start(self):
         """Start the assistant"""

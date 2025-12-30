@@ -61,7 +61,7 @@ class PlannerAgent:
                 "goal": "Take a screenshot",
                 "steps": [
                     {
-                        "tool": "take_screenshot",
+                        "tool": "system.display.take_screenshot",
                         "args": {"save_location": "desktop"}
                     }
                 ],

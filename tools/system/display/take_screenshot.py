@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
-from ..base import Tool
+from ...base import Tool
 
 
 class TakeScreenshot(Tool):
@@ -13,7 +13,7 @@ class TakeScreenshot(Tool):
     
     @property
     def name(self) -> str:
-        return "take_screenshot"
+        return "system.display.take_screenshot"
     
     @property
     def description(self) -> str:

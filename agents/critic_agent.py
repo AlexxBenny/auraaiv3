@@ -119,7 +119,7 @@ Respond with JSON containing your evaluation.
             
         Returns:
             {
-                "tool_name": "take_screenshot",
+                "tool_name": "system.display.take_screenshot",
                 "satisfaction": 0.9,
                 "issues": [],
                 "recommendations": ["Tool worked well"]
