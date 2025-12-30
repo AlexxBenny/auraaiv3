@@ -1,0 +1,18 @@
+# Local runtime model configuration
+# All models use Ollama (local, no API keys required)
+
+intent:
+  provider: ollama
+  model: phi3:mini
+  base_url: http://localhost:11434
+
+planner:
+  provider: ollama
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434
+
+critic:
+  provider: ollama
+  model: llama3:8b
+  base_url: http://localhost:11434
+

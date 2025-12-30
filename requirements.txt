@@ -1,0 +1,11 @@
+requests>=2.31.0
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+pyautogui>=0.9.54
+Pillow>=9.0.0
+pywin32>=306
+screen-brightness-control>=0.21.0
+wmi>=1.5.1
+comtypes>=1.1.14
+pycaw>=20230407
+PyYAML>=6.0

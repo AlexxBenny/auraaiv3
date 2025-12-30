@@ -1,0 +1,26 @@
+# AURA Configuration Settings
+
+# Self-Evolution Configuration
+evolution:
+  autonomy_mode: manual  # manual | assisted | sandboxed | autonomous
+  max_risk_level: medium  # low | medium | high
+  forbidden_categories:
+    - system_destruction
+    - network_exploit
+  require_manual_approval: true
+  auto_generate_scaffolds: false
+
+# Logging Configuration
+logging:
+  log_proposals: true
+  log_validations: true
+  log_registrations: true
+  log_tool_effectiveness: true
+
+# Safety Policy
+safety:
+  require_description_min_length: 10
+  require_os_permissions: true
+  validate_tool_names: true
+  check_name_conflicts: true
+

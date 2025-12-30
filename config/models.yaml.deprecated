@@ -1,0 +1,35 @@
+# DEPRECATED: This file is no longer used
+# 
+# AURA now uses runtime-based model configuration:
+# - config/runtime.yaml - Runtime mode selection
+# - config/models/local.yaml - Local runtime models
+# - config/models/hosted.yaml - Hosted runtime models (stub)
+# - config/models/hybrid.yaml - Hybrid runtime models (stub)
+#
+# This file is kept for reference only.
+# To migrate: Copy relevant config to config/models/local.yaml
+
+# Intent classification (cheap, fast, local preferred)
+intent:
+  provider: ollama
+  model: phi-3-mini
+  base_url: http://localhost:11434
+
+# Planning agent (reasoning, task decomposition)
+planner:
+  provider: openrouter
+  model: mistralai/mistral-7b-instruct
+  # Alternative: use ollama for free
+  # provider: ollama
+  # model: llama3.1:8b
+
+# Critic agent (post-execution evaluation)
+critic:
+  provider: ollama
+  model: llama3.1:8b
+  base_url: http://localhost:11434
+
+# Future: Add more roles as needed
+# research:
+#   provider: gemini
+#   model: gemini-2.5-flash
