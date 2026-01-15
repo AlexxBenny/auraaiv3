@@ -73,6 +73,12 @@ class Assistant:
         """Display execution result"""
         final_status = result.get("final_status")
         
+        # Handle information/planning/system responses
+        if final_status in ["information", "planning", "system"]:
+            response = result.get("response", "No response provided")
+            print(f"\n💬 {response}")
+            return
+        
         if final_status == "requires_new_skill":
             print(f"\n⚠️  {result.get('message', 'New skill required')}")
             

@@ -19,8 +19,10 @@ class ToolExecutor:
     def execute_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a complete plan
         
+        HARD GUARD: Only executes if action_type == "action"
+        
         Args:
-            plan: Plan from PlannerAgent
+            plan: Plan from PlannerAgent (must have action_type == "action")
             
         Returns:
             {
@@ -28,7 +30,19 @@ class ToolExecutor:
                 "results": [...],
                 "errors": [...]
             }
+            
+        Raises:
+            RuntimeError: If action_type is not "action"
         """
+        # HARD GUARD: Prevent unauthorized tool execution
+        action_type = plan.get("action_type", "action")
+        if action_type != "action":
+            raise RuntimeError(
+                f"CRITICAL: ToolExecutor called with action_type='{action_type}'. "
+                f"Tools can ONLY execute when action_type='action'. "
+                f"This is a safety violation."
+            )
+        
         steps = plan.get("steps", [])
         results = []
         errors = []
