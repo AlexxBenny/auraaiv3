@@ -20,8 +20,8 @@ def test_imports():
         from tools.base import Tool
         print("[OK] Tool base class imported")
         
-        from tools.system.screenshot import TakeScreenshot
-        print("[OK] TakeScreenshot tool imported")
+        from tools.loader import load_all_tools
+        print("[OK] ToolLoader imported")
         
         from agents.intent_agent import IntentAgent
         print("[OK] IntentAgent imported")
@@ -51,24 +51,30 @@ def test_imports():
         return False
 
 def test_tool_registry():
-    """Test tool registry"""
+    """Test tool registry with auto-discovery"""
     print("\nTesting tool registry...")
     
     try:
         from tools.registry import get_registry
-        from tools.system.screenshot import TakeScreenshot
+        from tools.loader import load_all_tools
+        
+        # Auto-discover and register tools
+        discovered = load_all_tools()
         
         registry = get_registry()
-        registry.register(TakeScreenshot())
         
-        assert registry.has("take_screenshot"), "Tool not registered"
-        assert registry.get("take_screenshot") is not None, "Tool not found"
+        # Check that screenshot tool was discovered and registered
+        assert len(discovered) > 0, "No tools discovered"
+        assert registry.has("system.display.take_screenshot"), "Screenshot tool not registered"
+        assert registry.get("system.display.take_screenshot") is not None, "Screenshot tool not found"
         
-        print("[OK] Tool registry working")
+        print(f"[OK] Tool registry working ({len(discovered)} tools auto-discovered)")
         return True
         
     except Exception as e:
         print(f"[ERROR] Tool registry test failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def test_model_manager():

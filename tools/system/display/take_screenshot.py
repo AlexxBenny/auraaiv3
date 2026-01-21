@@ -1,11 +1,18 @@
-"""Screenshot tool - deterministic Windows screenshot"""
+"""Tool: system.display.take_screenshot
+
+Captures the screen and saves to a file.
+
+Category: perception
+Risk Level: low
+Side Effects: file_created
+"""
 
 import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
-from ..base import Tool
+from ...base import Tool
 
 
 class TakeScreenshot(Tool):
@@ -13,11 +20,31 @@ class TakeScreenshot(Tool):
     
     @property
     def name(self) -> str:
-        return "take_screenshot"
+        return "system.display.take_screenshot"
     
     @property
     def description(self) -> str:
         return "Takes a screenshot and saves it to the specified location"
+    
+    @property
+    def risk_level(self) -> str:
+        return "low"  # Read-only screen capture
+    
+    @property
+    def side_effects(self) -> list[str]:
+        return ["file_created"]  # Creates a file on disk
+    
+    @property
+    def stabilization_time_ms(self) -> int:
+        return 100  # File write is fast
+    
+    @property
+    def reversible(self) -> bool:
+        return True  # File can be deleted
+    
+    @property
+    def requires_visual_confirmation(self) -> bool:
+        return False  # Screenshot itself is verification
     
     @property
     def schema(self) -> Dict[str, Any]:

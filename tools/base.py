@@ -45,6 +45,31 @@ class Tool(ABC):
         """
         raise NotImplementedError
     
+    @property
+    def risk_level(self) -> str:
+        """Risk level: 'low', 'medium', 'high'"""
+        return "medium"
+        
+    @property
+    def side_effects(self) -> list[str]:
+        """List of side effects (e.g., 'modifies_fs', 'changes_focus')"""
+        return []
+        
+    @property
+    def stabilization_time_ms(self) -> int:
+        """Expected time for system to settle after execution (ms)"""
+        return 0
+        
+    @property
+    def reversible(self) -> bool:
+        """Can this action be reversed trivially?"""
+        return False
+
+    @property
+    def requires_visual_confirmation(self) -> bool:
+        """Does this tool require visual checks to confirm success?"""
+        return False
+
     @abstractmethod
     def execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the tool with given arguments
@@ -92,6 +117,11 @@ class Tool(ABC):
         return {
             "name": self.name,
             "description": self.description,
-            "schema": self.schema
+            "schema": self.schema,
+            "risk_level": self.risk_level,
+            "side_effects": self.side_effects,
+            "stabilization_time_ms": self.stabilization_time_ms,
+            "reversible": self.reversible,
+            "requires_visual_confirmation": self.requires_visual_confirmation
         }
 

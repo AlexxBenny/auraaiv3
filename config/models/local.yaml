@@ -16,3 +16,14 @@ critic:
   model: llama3:8b
   base_url: http://localhost:11434
 
+# NEW: Decomposition gate (cheap, fast - decides single/multi goal)
+gate:
+  provider: ollama
+  model: phi3:mini
+  base_url: http://localhost:11434
+
+# NEW: Task Decomposition Agent (for multi-goal decomposition)
+tda:
+  provider: ollama
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434

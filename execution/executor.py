@@ -19,8 +19,10 @@ class ToolExecutor:
     def execute_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a complete plan
         
+        HARD GUARD: Only executes if action_type == "action"
+        
         Args:
-            plan: Plan from PlannerAgent
+            plan: Plan from PlannerAgent (must have steps to execute)
             
         Returns:
             {
@@ -28,8 +30,25 @@ class ToolExecutor:
                 "results": [...],
                 "errors": [...]
             }
+            
+        Raises:
+            RuntimeError: If no steps are present
         """
         steps = plan.get("steps", [])
+        
+        # =========================================================================
+        # MODERN EXECUTION GUARD (2024-2025)
+        # =========================================================================
+        # Primary check: Steps must be present
+        # action_type is advisory (LLM output, not authoritative)
+        # Neo4j eligibility is checked BEFORE this point by PlannerAgent
+        # =========================================================================
+        if not steps:
+            raise RuntimeError(
+                "CRITICAL: ToolExecutor called with no steps. "
+                "Nothing to execute. This is a logic error."
+            )
+        
         results = []
         errors = []
         

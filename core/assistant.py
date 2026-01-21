@@ -11,32 +11,44 @@ from typing import Optional, Dict, Any
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from .agent_loop import AgentLoop
+from .orchestrator import SubtaskOrchestrator
 from .context import SessionContext
 from tools.registry import get_registry
-from tools.system.screenshot import TakeScreenshot
+from tools.loader import load_all_tools
 
 
 class Assistant:
     """New agentic assistant - NO code execution"""
     
     def __init__(self):
-        # Initialize agent loop
-        self.agent_loop = AgentLoop()
-        
-        # Register tools
+        # Auto-discover and register all tools
         self._register_tools()
+        
+        # Sync Qdrant index (non-fatal if fails)
+        self._sync_semantic_index()
+        
+        # Initialize subtask orchestrator (after tools are registered)
+        # This replaces AgentLoop as the entry point for TDA v3
+        self.orchestrator = SubtaskOrchestrator()
         
         logging.info("Assistant initialized (agentic mode)")
     
     def _register_tools(self):
-        """Register all available tools"""
+        """Auto-discover and register all available tools"""
+        discovered = load_all_tools()
         registry = get_registry()
         
-        # Register system tools
-        registry.register(TakeScreenshot())
-        
-        logging.info(f"Registered {len(registry.list_all())} tools")
+        logging.info(f"Auto-registered {len(discovered)} tools from discovery")
+    
+    def _sync_semantic_index(self):
+        """Sync tool index to Qdrant for semantic search"""
+        try:
+            from core.semantic.tool_index import sync_index
+            result = sync_index()
+            logging.info(f"Qdrant: {result}")
+        except Exception as e:
+            # Non-fatal - system works without semantic search
+            logging.warning(f"Qdrant sync failed (non-fatal): {e}")
     
     def start(self):
         """Start the assistant"""
@@ -60,7 +72,7 @@ class Assistant:
                     break
                 
                 # Process through agentic loop
-                result = self.agent_loop.process(user_input)
+                result = self.orchestrator.process(user_input)
                 
                 # Display result
                 self._display_result(result)
@@ -74,6 +86,12 @@ class Assistant:
     def _display_result(self, result: Dict[str, Any]):
         """Display execution result"""
         final_status = result.get("final_status")
+        
+        # Handle information/planning/system responses
+        if final_status in ["information", "planning", "system"]:
+            response = result.get("response", "No response provided")
+            print(f"\n💬 {response}")
+            return
         
         if final_status == "requires_new_skill":
             print(f"\n⚠️  {result.get('message', 'New skill required')}")
