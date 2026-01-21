@@ -1,250 +1,384 @@
-# 🤖 AURA - Advanced Neural Network Interface
+# 🤖 AURA - Agentic Desktop Assistant
 
-A secure, modular AI assistant with a futuristic GUI that learns and adapts to new tasks through natural language commands. AURA can control Windows systems, learn new capabilities, and improve itself over time through its neural network architecture.
+A multi-agent AI system for Windows desktop automation with **effect-based planning**, **deterministic execution**, and **self-evolution capabilities**.
 
-## ✨ Features
+---
 
-### 🧠 Self-Improvement
-- **Dynamic Learning**: Automatically generates new functions when encountering unknown tasks
-- **Capability Expansion**: Learns from failures and adds new capabilities to its toolkit
-- **Success Tracking**: Monitors performance and optimizes based on usage patterns
-- **Persistent Memory**: Remembers learned capabilities across sessions
+## 🌟 What Makes AURA Different
 
-### 🔒 Security
-- **Code Validation**: AST-based security validation before code execution
-- **Sandboxed Execution**: Safe code execution with timeout and resource limits
-- **API Key Protection**: Secure environment variable-based API key management
-- **Function Whitelisting**: Only allows approved modules and functions
+### ♻️ Idempotent Effect Execution
+Plans are expressed as **observable effects** (not imperative commands). Before execution:
+- **Preconditions** are validated
+- **Already-satisfied effects** are detected and skipped
+- Re-running the same command won't repeat completed work
 
-### 🎤 Multi-Modal Interface
-- **Voice Commands**: Natural speech recognition and text-to-speech responses
-- **Text Interface**: Traditional keyboard input for precise commands
-- **Dynamic Switching**: Switch between voice and text modes during operation
+```
+User: "Mute the volume"
+→ Effect: {type: "audio.muted", target: "master"}
+→ Check: Is master already muted? → YES → Skip execution
+```
 
-### 🖥️ Windows System Control
-- Desktop icon visibility control
-- System volume management
-- File Explorer operations
-- Workstation locking
-- Wallpaper changes
-- Network adapter control
-- And much more...
+### 🔍 Two-Tier Effect Verification
+Execution results are verified in two tiers:
+1. **Tier 1 (Deterministic)**: Fast Python checks (file exists? volume level?)
+2. **Tier 2 (LLM Fallback)**: For custom effects without deterministic verifiers
+
+No blind trust in tool return values—effects are independently verified.
+
+### 🧭 Semantic Tool Discovery (Qdrant)
+Tools are found via **semantic similarity**, not string matching:
+- Tool descriptions are embedded and indexed in Qdrant
+- Planner queries find relevant tools even with novel phrasing
+- No brittle keyword mapping required
+
+### 🚧 Ontology-Based Plan Validation (Neo4j)
+Before execution, plans are validated against a **constraint graph**:
+- **Blocked tools** based on context (e.g., "don't send emails during DND")
+- **Prerequisite checks** (e.g., "app must be open before clicking")
+- Plans failing eligibility are refused with explanation
+
+### 🔄 Evolution Modes
+Self-evolution with configurable autonomy:
+
+| Mode | Behavior |
+|------|----------|
+| `manual` | Human approves all new tools |
+| `assisted` | System proposes, human decides |
+| `sandboxed` | Auto-test in isolated environment |
+| `autonomous` | Full auto-evolution (high trust) |
+
+---
+
+## 🧠 Multi-Agent Architecture
+
+| Agent | Role | Model Type |
+|-------|------|------------|
+| **Intent Agent** | Fast intent classification | Cheap/fast |
+| **Planner Agent** | Effect-based plan generation | Reasoning |
+| **Critic Agent** | Two-tier effect verification | Evaluation |
+| **Task Decomposition Agent** | Complex query → atomic subtasks | Reasoning |
+| **Limitation Agent** | Propose new tools for gaps | Reasoning |
+
+### Core Principles
+1. **LLMs decide, Python executes** - LLMs never run code
+2. **Deterministic tools** - Same input → same output
+3. **Schema validation** - All LLM outputs validated
+4. **Model abstraction** - Switch providers via YAML config
+
+---
+
+## 🔌 Multi-Provider Model Support
+
+| Provider | Use Case |
+|----------|----------|
+| **Gemini** | Google AI, fast inference |
+| **OpenRouter** | Aggregator, model variety |
+| **Ollama** | Local models, privacy |
+
+```yaml
+# config/models/local.yaml
+intent:
+  provider: gemini
+  model: gemini-2.5-flash
+planner:
+  provider: gemini
+  model: gemini-2.5-flash
+critic:
+  provider: gemini
+  model: gemini-2.5-flash
+```
+
+---
+
+## 🛠️ Tool Categories
+
+| Category | Examples |
+|----------|----------|
+| `system/apps` | Launch, close, focus applications |
+| `system/audio` | Volume control, mute |
+| `system/display` | Screenshot, brightness |
+| `system/input` | Mouse click, keyboard type |
+| `system/power` | Sleep, shutdown, lock |
+| `system/state` | Query running processes |
+
+---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.8 or higher
-- Windows 10/11 (for system control features)
-- OpenRouter API key (get one at [openrouter.ai](https://openrouter.ai/))
+- Python 3.8+
+- Windows 10/11
+- API key (Gemini, OpenRouter, or Ollama running locally)
 
 ### Installation
+```bash
+git clone <repo-url>
+cd AURA
+pip install -r requirements.txt
 
-1. **Clone or download the project**
-2. **Run the setup script**:
-   ```bash
-   python setup.py
-   ```
-   This will:
-   - Install required dependencies
-   - Help you set up your API key
-   - Run tests to verify installation
-   - Create a desktop shortcut (optional)
+# Set API key
+$env:GEMINI_API_KEY="your_key_here"
 
-3. **Set your API key** (if not done during setup):
-   ```bash
-   # Windows
-   set OPENROUTER_API_KEY=your_key_here
-   
-   # Linux/Mac
-   export OPENROUTER_API_KEY=your_key_here
-   ```
-
-4. **Start AURA**:
-   ```bash
-   # Launch AURA GUI directly
-   python aura_gui.py
-   
-   # Or use the batch file for full experience
-   start_aura.bat
-   ```
-
-## 📖 Usage
-
-### Basic Commands
-The assistant understands natural language commands:
-
-```
-"open notepad"
-"hide desktop icons"
-"mute system volume"
-"change wallpaper"
-"lock workstation"
-"open file explorer"
+# Run
+python main.py
 ```
 
-### Special Commands
-- `status` - Show system status and statistics
-- `capabilities` - List all learned capabilities
-- `learning` - Show learning information and suggestions
-- `switch to voice/text` - Change input mode
-- `help` - Show available commands
-- `exit` or `quit` - Stop the assistant
-
-### Self-Improvement in Action
-
-When you ask the assistant to do something it doesn't know how to do:
-
-1. **First Attempt**: It tries with existing knowledge
-2. **Failure Detection**: Recognizes when it lacks capability
-3. **Learning Phase**: Generates new function to handle the task
-4. **Integration**: Adds the new capability to its toolkit
-5. **Retry**: Attempts the original command with new capability
-6. **Success**: Task completed and capability saved for future use
-
-Example:
-```
-You: "Take a screenshot"
-Assistant: ❌ Execution failed
-Assistant: 🔄 Attempting to self-improve...
-Assistant: ✅ Successfully added take_screenshot() capability
-Assistant: 🔄 Retrying with new capability...
-Assistant: ✅ Task completed successfully!
-```
+---
 
 ## 🏗️ Architecture
 
-### Core Components
-
-- **`assistant.py`** - Main application and coordination
-- **`config.py`** - Secure configuration management
-- **`ai_client.py`** - Modern OpenAI API client
-- **`code_executor.py`** - Safe code execution with validation
-- **`capability_manager.py`** - Dynamic capability management
-- **`self_improvement.py`** - Self-improvement engine
-- **`voice_interface.py`** - Voice and text interfaces
-- **`windows_system_utils.py`** - Windows system functions
-
-### Data Storage
-
-The assistant stores its learning data in:
-- `~/.ai_assistant/config.json` - Configuration settings
-- `~/.ai_assistant/capabilities.json` - Learned capabilities
-- `~/.ai_assistant/learning_data.json` - Learning history and statistics
-- `~/.ai_assistant/logs/` - Application logs
-
-## 🔧 Configuration
-
-### Environment Variables
-- `OPENROUTER_API_KEY` - Your OpenRouter API key (required)
-- `OPENAI_API_KEY` - Alternative API key (fallback)
-
-### Configuration File
-Edit `~/.ai_assistant/config.json` to customize:
-
-```json
-{
-  "api": {
-    "model": "google/gemini-2.0-flash-001",
-    "base_url": "https://openrouter.ai/api/v1"
-  },
-  "security": {
-    "max_code_length": 5000,
-    "execution_timeout": 30
-  },
-  "learning": {
-    "auto_improve": true,
-    "max_learning_history": 1000
-  }
-}
+```
+User Input
+    ↓
+┌─────────────────────────────────────────┐
+│  SubtaskOrchestrator (top-level)        │
+│    ├─ Decomposition Gate                │
+│    └─ Task Decomposition Agent          │
+└─────────────────────────────────────────┘
+    ↓ (per subtask)
+┌─────────────────────────────────────────┐
+│  AgentLoop                              │
+│    ├─ Intent Agent (classification)     │
+│    ├─ Planner Agent (effect planning)   │
+│    ├─ Effect Router (deterministic)     │
+│    ├─ Tool Executor (NO AI)             │
+│    └─ Critic Agent (evaluation)         │
+└─────────────────────────────────────────┘
+    ↓
+Result
 ```
 
-## 🛡️ Security Features
+### Directory Structure
 
-### Code Validation
-- AST parsing to detect malicious code patterns
-- Whitelist of allowed modules and functions
-- Blacklist of dangerous operations
-- Code length and complexity limits
+```
+AURA/
+├── agents/                    # AI agents
+│   ├── intent_agent.py       # Fast intent classification
+│   ├── planner_agent.py      # Effect-based planning
+│   ├── critic_agent.py       # Execution evaluation
+│   ├── task_decomposition.py # TDA v3
+│   ├── limitation_agent.py   # Skill proposals
+│   └── decomposition_gate.py # Single/multi routing
+├── core/
+│   ├── orchestrator.py       # SubtaskOrchestrator (entry point)
+│   ├── agent_loop.py         # Per-subtask execution
+│   ├── assistant.py          # User-facing interface
+│   ├── effects/              # Effect schemas & verification
+│   │   ├── schema.py         # Effect type definitions
+│   │   └── verification.py   # Deterministic verifiers
+│   ├── semantic/             # Semantic search (Qdrant)
+│   │   ├── qdrant_client.py  # Vector store client
+│   │   ├── tool_index.py     # Tool embeddings
+│   │   └── tool_search.py    # Semantic tool matching
+│   └── ontology/             # Constraint checking (Neo4j)
+│       ├── neo4j_client.py   # Graph DB client
+│       └── eligibility.py    # Plan eligibility checks
+├── tools/
+│   ├── base.py               # Tool base class
+│   ├── registry.py           # Central tool registry
+│   ├── loader.py             # Dynamic tool loading
+│   └── system/               # System tools by category
+├── models/
+│   ├── model_manager.py      # Model routing singleton
+│   └── providers/            # LLM provider adapters
+│       ├── gemini.py
+│       ├── openrouter.py
+│       └── ollama.py
+├── memory/
+│   ├── procedural.py         # Tool proposals & skills
+│   └── postmortem.py         # Execution outcomes
+├── execution/
+│   └── executor.py           # Deterministic tool executor
+├── config/
+│   ├── settings.yaml         # General settings
+│   └── models/               # Per-runtime model configs
+│       ├── local.yaml
+│       ├── hosted.yaml
+│       └── hybrid.yaml
+├── tests/                    # Test suite
+│   ├── test_e2e_*.py         # End-to-end tests
+│   └── test_*_integration.py # Integration tests
+├── docs/                     # Documentation
+│   ├── ARCHITECTURE.md       # Detailed architecture
+│   └── *.md                  # Design docs
+├── main.py                   # Entry point
+└── requirements.txt
+```
+
+---
+
+## 🛡️ Security & Safety
 
 ### Execution Safety
-- Sandboxed execution environment
-- Timeout protection
-- Resource usage monitoring
-- Rollback capabilities
+- **No `exec()` calls** - Tools are pure Python
+- **Schema validation** - All LLM outputs validated before use
+- **Argument validation** - Tool inputs checked against JSON Schema
+- **Risk levels** - Tools declare `low`, `medium`, `high` risk
+- **Side effect tracking** - Tools declare their side effects
 
-### API Security
-- Environment variable-based key storage
-- No hardcoded credentials
-- Secure API communication
+### Self-Evolution Safety
+```yaml
+# config/settings.yaml
+evolution:
+  autonomy_mode: manual    # manual | assisted | sandboxed | autonomous
+  max_risk_level: medium
+  require_manual_approval: true
+  forbidden_categories:
+    - system_destruction
+    - network_exploit
+```
+
+### Tool Contract
+Every tool must:
+1. Inherit from `Tool` base class
+2. Define `name`, `description`, `schema`
+3. Implement `execute(args)` → `{"status": "success", ...}`
+4. Be deterministic (no randomness, no AI)
+
+---
+
+## ⚙️ Configuration
+
+### Runtime Modes
+AURA supports multiple runtime modes configured in `config/runtime.yaml`:
+- **local** - All models run locally or via personal API keys
+- **hosted** - Cloud-hosted models (future)
+- **hybrid** - Mixed local/cloud (future)
+
+### Model Configuration
+Edit `config/models/<runtime>.yaml` to customize models per agent role:
+
+```yaml
+intent:
+  provider: ollama
+  model: phi-3-mini
+
+planner:
+  provider: openrouter
+  model: mistralai/mistral-7b-instruct
+
+critic:
+  provider: gemini
+  model: gemini-2.5-flash
+```
+
+---
 
 ## 🧪 Testing
 
-Run the test suite:
 ```bash
+# Run full test suite
 python -m pytest tests/
+
+# Run specific test
+python -m pytest tests/test_e2e_safety_trace.py -v
+
+# Run integration tests
+python -m pytest tests/test_planner_qdrant_integration.py -v
 ```
 
-Or run basic validation:
-```bash
-python setup.py
+---
+
+## 📖 Usage Examples
+
+```
+You: "Take a screenshot"
+→ Intent: system_control
+→ Plan: effects=[{type: "screenshot.captured", ...}]
+→ Execute: ScreenshotTool.execute()
+→ Critic: verified ✓
+→ Result: Screenshot saved
+
+You: "Mute the volume and open notepad"
+→ Decomposition Gate: MULTI
+→ TDA: subtask_1="mute volume", subtask_2="open notepad"
+→ Execute each subtask through AgentLoop
+→ Aggregate results
 ```
 
-## 🤝 Contributing
+### Special Commands
+- `help` - Show available commands
+- `status` - Show system status
+- `exit` / `quit` - Exit AURA
 
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure security validation passes
-5. Submit a pull request
+---
 
-## 📝 License
+## 🔮 Self-Evolution
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+When AURA encounters an unknown capability:
+1. **Detection** - Planner reports `requires_new_tool: true`
+2. **Proposal** - LimitationAgent proposes tool specification
+3. **Validation** - SkillGate validates proposal
+4. **Storage** - ProceduralMemory stores proposal
+5. **Human Review** - User approves/rejects
+6. **Implementation** - Tool scaffold generated for development
+
+> **Note**: Self-evolution currently requires human approval for new tools.
+
+---
+
+## 📝 Development
+
+### Adding New Tools
+
+1. Create tool in `tools/system/<category>/`:
+   ```python
+   from tools.base import Tool
+
+   class MyTool(Tool):
+       @property
+       def name(self) -> str:
+           return "my_tool"
+       
+       @property
+       def description(self) -> str:
+           return "Does something useful"
+       
+       @property
+       def schema(self) -> dict:
+           return {
+               "type": "object",
+               "properties": {
+                   "param": {"type": "string"}
+               },
+               "required": ["param"]
+           }
+       
+       def execute(self, args: dict) -> dict:
+           # Deterministic Python only
+           return {"status": "success", "result": "..."}
+   ```
+
+2. Tool is auto-discovered via `ToolLoader`
+
+### Key Design Principles
+- **Effect-first**: Think in terms of observable state changes
+- **Determinism**: Tools must produce same output for same input
+- **Separation**: LLMs reason, Python executes
+- **Validation**: Schema-first, always validate
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Detailed system architecture |
+| [SELF_EVOLUTION_PLAN.md](docs/SELF_EVOLUTION_PLAN.md) | Self-evolution design |
+| [IMPLEMENTATION_ORDER.md](docs/IMPLEMENTATION_ORDER.md) | Build order guide |
+
+---
 
 ## ⚠️ Disclaimer
 
-This assistant can execute code and modify system settings. While security measures are in place:
-
-- Always review generated code before execution
-- Use in a controlled environment
-- Keep backups of important data
+AURA executes actions on your Windows system. While safety measures are in place:
+- Review tool proposals before approval
+- Use in controlled environments for testing
 - Monitor system changes
+- Keep backups of important data
 
-The assistant is designed to be helpful but should be used responsibly.
+---
 
-## 🆘 Troubleshooting
+## 📄 License
 
-### Common Issues
-
-**"No API key found"**
-- Set the `OPENROUTER_API_KEY` environment variable
-- Restart your terminal/IDE after setting the variable
-
-**"Voice libraries not available"**
-- Install audio dependencies: `pip install pyaudio`
-- On Windows, you may need Visual C++ build tools
-
-**"Permission denied" errors**
-- Run as administrator for system-level operations
-- Check Windows UAC settings
-
-**Code execution fails**
-- Check the logs in `~/.ai_assistant/logs/`
-- Verify the generated code in the console output
-- Try switching to text mode for debugging
-
-### Getting Help
-
-1. Check the logs in `~/.ai_assistant/logs/assistant.log`
-2. Use the `status` command to check system health
-3. Try the `help` command for available options
-4. Review the generated code for issues
-
-## 🔮 Future Enhancements
-
-- Cross-platform support (Linux, macOS)
-- Plugin system for custom capabilities
-- Web interface for remote control
-- Integration with more AI models
-- Advanced learning algorithms
-- Collaborative learning between instances
+MIT License - See LICENSE file for details.
