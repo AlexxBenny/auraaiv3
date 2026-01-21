@@ -1,11 +1,21 @@
 """Agentic Loop - Main orchestration
 
-This replaces the old exec(generated_code) pattern.
+Effect-Based Execution Model:
+- Routing is based on EFFECTS presence, not action_type
+- Preconditions are checked BEFORE execution
+- Already-satisfied effects are marked, not re-executed
+- Explanation is generated AFTER execution (lazy)
+
+Neo4j Integration:
+- Plans may be refused due to blocking constraints
+- Refusals are handled before tool execution
+- User-facing messages are generated from structural refusals
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from .context import SessionContext
+from .response_formatter import format_refusal_message, format_safety_warnings
 from agents.intent_agent import IntentAgent
 from agents.planner_agent import PlannerAgent
 from agents.critic_agent import CriticAgent
@@ -17,7 +27,7 @@ from core.tool_scaffold import ToolScaffoldGenerator
 
 
 class AgentLoop:
-    """Main agentic loop orchestrator"""
+    """Main agentic loop orchestrator - Effect-based execution"""
     
     def __init__(self):
         self.intent_agent = IntentAgent()
@@ -32,19 +42,18 @@ class AgentLoop:
         self.procedural_memory = ProceduralMemory()
         self.scaffold_generator = ToolScaffoldGenerator()
         
-        logging.info("AgentLoop initialized with self-evolution support")
+        logging.info("AgentLoop initialized with effect-based execution")
     
     def process(self, user_input: str) -> Dict[str, Any]:
-        """Process user input through agentic loop with action type routing
+        """Process user input through effect-based agentic loop
         
         Flow:
         1. Intent Agent: Classify intent
-        2. Planner Agent: Create plan with action_type
-        3. Route based on action_type:
-           - INFORMATION: Return response, NO tools
-           - PLANNING: Return response, NO tools
-           - SYSTEM: Handle system command, NO tools
-           - ACTION: Execute tools (only if authorized)
+        2. Planner Agent: Create plan with effects + explanation
+        3. Route based on EFFECTS presence (not action_type):
+           - effects=[] → pure explanation, NO tools
+           - effects present → check preconditions → execute → evaluate
+        4. Generate explanation AFTER execution (lazy)
         
         Args:
             user_input: User's command
@@ -55,8 +64,8 @@ class AgentLoop:
                 "plan": {...},
                 "execution": {...} | null,
                 "evaluation": {...} | null,
-                "final_status": "information" | "planning" | "system" | "success" | "failure",
-                "response": "..." (for information/planning/system)
+                "final_status": "success" | "failure" | "information" | ...,
+                "response": "..." (for explanations)
             }
         """
         logging.info(f"Processing user input: {user_input}")
@@ -65,30 +74,151 @@ class AgentLoop:
         intent_result = self.intent_agent.classify(user_input)
         intent = intent_result.get("intent", "unknown")
         
-        # Step 2: Create plan (includes action_type classification)
+        # Step 2: Create plan (effects-first model)
         plan = self.planner_agent.plan(user_input, intent)
-        action_type = plan.get("action_type", "action")
+        effects = plan.get("effects", [])
+        explanation = plan.get("explanation", {})
+        steps = plan.get("steps", [])
         
-        logging.info(f"Action type: {action_type.upper()} — {'tools will execute' if action_type == 'action' else 'NO tools executed'}")
+        # =========================================================================
+        # EFFECT-BASED ROUTING (Phase 3)
+        # =========================================================================
+        # PRIMARY TRIGGER: Presence of effects (not steps, not action_type)
+        # Effects presence = execution path
+        # Effects empty = pure explanation path
+        # =========================================================================
         
-        # Route based on action_type (CRITICAL: Tools only execute for ACTION)
-        if action_type == "information":
-            return self._handle_information(plan, intent_result, user_input)
+        result = {
+            "intent": intent_result,
+            "plan": plan,
+            "execution": None,
+            "evaluation": None,
+            "final_status": None,
+            "response": None
+        }
         
-        elif action_type == "planning":
-            return self._handle_planning(plan, intent_result, user_input)
-        
-        elif action_type == "system":
-            return self._handle_system(plan, intent_result, user_input)
-        
-        elif action_type == "action":
-            return self._handle_action(plan, intent_result, user_input)
-        
+        if effects:
+            # ===== EFFECTS PRESENT: Execution path =====
+            logging.info(f"Effects present ({len(effects)}) — routing to EFFECT handler")
+            
+            # Phase 3 Refinement B: Explicit precondition checking
+            effects = self._check_preconditions(effects)
+            
+            # Phase 3 Refinement C: Pre-execution satisfaction check
+            effects, all_satisfied = self._check_already_satisfied(effects)
+            
+            if all_satisfied:
+                # All effects already satisfied - no execution needed
+                logging.info("All effects already satisfied - skipping execution")
+                result["final_status"] = "success"
+                result["evaluation"] = {"all_effects_pre_satisfied": True}
+            else:
+                # Route to action handler for pending effects
+                pending_effects = [e for e in effects if e.get("state") == "PENDING"]
+                logging.info(f"Pending effects: {len(pending_effects)} — executing")
+                action_result = self._handle_action(plan, intent_result, user_input, pending_effects)
+                result.update(action_result)
         else:
-            # Fallback: treat as action (should not happen due to schema validation)
-            logging.warning(f"Unknown action_type '{action_type}', treating as action")
-            return self._handle_action(plan, intent_result, user_input)
+            # ===== NO EFFECTS: Pure explanation/information path =====
+            logging.info("No effects — routing to EXPLANATION handler")
+            
+            # Derive final_status from action_type for backward compat
+            action_type = plan.get("action_type", "information")
+            if action_type == "system":
+                result = self._handle_system(plan, intent_result, user_input)
+            elif action_type == "planning":
+                result = self._handle_planning(plan, intent_result, user_input)
+            else:
+                result = self._handle_information(plan, intent_result, user_input)
+        
+        # ===== Phase 3 Refinement D: Lazy explanation generation =====
+        # Generate explanation AFTER execution + evaluation
+        if explanation and explanation.get("required"):
+            result["response"] = self._generate_explanation(
+                user_input, 
+                explanation.get("topic"),
+                result.get("execution")
+            )
+        
+        return result
     
+    def _check_preconditions(self, effects: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Check preconditions for each effect - mark SKIPPED if false"""
+        try:
+            from core.effects.verification import DETERMINISTIC_VERIFIERS
+        except ImportError:
+            logging.warning("Effects verification not available - skipping precondition checks")
+            return effects
+        
+        for effect in effects:
+            precondition = effect.get("precondition")
+            if precondition:
+                precond_type = precondition.get("type")
+                verifier = DETERMINISTIC_VERIFIERS.get(precond_type)
+                if verifier:
+                    result = verifier(precondition.get("params", {}))
+                    if not result.satisfied:
+                        effect["state"] = "SKIPPED"
+                        logging.info(f"Effect '{effect.get('id')}' SKIPPED - precondition not met: {result.evidence}")
+                    else:
+                        effect["state"] = "PENDING"
+                else:
+                    # No verifier - assume precondition met
+                    effect["state"] = "PENDING"
+            else:
+                # No precondition - proceed
+                effect["state"] = "PENDING"
+        
+        return effects
+    
+    def _check_already_satisfied(self, effects: List[Dict[str, Any]]) -> tuple:
+        """Check if effects are already satisfied - mark SATISFIED if true"""
+        try:
+            from core.effects.verification import DETERMINISTIC_VERIFIERS
+        except ImportError:
+            logging.warning("Effects verification not available - cannot check satisfaction")
+            return effects, False
+        
+        all_satisfied = True
+        
+        for effect in effects:
+            if effect.get("state") == "SKIPPED":
+                continue  # Already handled
+            
+            postcondition = effect.get("postcondition", {})
+            postcond_type = postcondition.get("type")
+            verifier = DETERMINISTIC_VERIFIERS.get(postcond_type)
+            
+            if verifier:
+                result = verifier(postcondition.get("params", {}))
+                if result.satisfied:
+                    effect["state"] = "SATISFIED"
+                    logging.info(f"Effect '{effect.get('id')}' already SATISFIED: {result.evidence}")
+                else:
+                    effect["state"] = "PENDING"
+                    all_satisfied = False
+            else:
+                # Custom types can't be pre-checked
+                effect["state"] = "PENDING"
+                all_satisfied = False
+        
+        return effects, all_satisfied
+    
+    def _generate_explanation(self, user_input: str, topic: Optional[str], 
+                             execution_result: Optional[Dict[str, Any]]) -> str:
+        """Generate explanation AFTER execution (lazy generation)"""
+        # If there was execution, include result context
+        if execution_result and execution_result.get("status") == "success":
+            if topic:
+                return f"About {topic}: I've completed the action you requested. Let me explain..."
+            return "I've completed the action. Let me explain what happened..."
+        elif execution_result and execution_result.get("status") != "success":
+            return f"The action encountered issues. Regarding {topic or 'your request'}..."
+        else:
+            # Pure explanation (no execution)
+            return self._generate_information_response(user_input)
+    
+
     def _handle_information(self, plan: Dict[str, Any], intent_result: Dict[str, Any], user_input: str) -> Dict[str, Any]:
         """Handle information request - NO tool execution"""
         response = plan.get("response")
@@ -149,48 +279,98 @@ class AgentLoop:
             "response": response
         }
     
-    def _handle_action(self, plan: Dict[str, Any], intent_result: Dict[str, Any], user_input: str) -> Dict[str, Any]:
-        """Handle action request - ONLY place where tools execute"""
-        # Check if new skill is needed (only for ACTION type)
-        if plan.get("requires_new_skill", False):
-            return self._handle_missing_skill(user_input, plan, intent_result)
+    def _handle_action(self, plan: Dict[str, Any], intent_result: Dict[str, Any], 
+                       user_input: str, pending_effects: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Handle action request - ONLY place where tools execute
         
-        # HARD GUARD: Ensure steps exist for action type
-        steps = plan.get("steps", [])
-        if not steps:
-            logging.warning("ACTION type but no steps provided - treating as information")
+        Args:
+            plan: The execution plan
+            intent_result: Intent classification result
+            user_input: Original user input
+            pending_effects: List of effects that need to be satisfied (Phase 3)
+        """
+        
+        # =========================================================================
+        # NEO4J REFUSAL CHECK
+        # =========================================================================
+        if plan.get("refused", False):
+            refusal = plan.get("refusal", {})
+            refusal_message = format_refusal_message(refusal)
+            
+            logging.warning(f"Plan refused by Neo4j: {refusal_message}")
+            logging.info(f"  Blocked tools: {refusal.get('blocked_tools', [])}")
+            for constraint in refusal.get("blocking_constraints", []):
+                logging.info(f"  Constraint: {constraint.get('constraint')} ({constraint.get('type')})")
+            
             return {
                 "intent": intent_result,
                 "plan": plan,
                 "execution": None,
                 "evaluation": None,
-                "final_status": "information",
-                "response": f"I understand you want to: {plan.get('goal', user_input)}. However, I don't have a clear action plan for this."
+                "final_status": "refused",
+                "response": refusal_message,
+                "eligibility_checked": plan.get("eligibility_checked", False)
+            }
+        
+        # Check if new skill is needed
+        if plan.get("requires_new_skill", False):
+            return self._handle_missing_skill(user_input, plan, intent_result)
+        
+        # HARD GUARD: Ensure steps exist when effects are pending
+        steps = plan.get("steps", [])
+        if not steps:
+            # Effects present but no steps = requires_new_skill should have been set
+            logging.warning("Effects present but no steps - treating as requires_new_skill")
+            return {
+                "intent": intent_result,
+                "plan": plan,
+                "execution": None,
+                "evaluation": None,
+                "final_status": "requires_new_skill",
+                "response": f"I understand you want to: {plan.get('goal', user_input)}. However, I don't have the tools to accomplish this yet."
             }
         
         # Execute tools (ONLY authorized path)
         logging.info(f"ACTION request — executing {len(steps)} tool step(s)")
         execution_result = self.executor.execute_plan(plan)
         
-        # Evaluate result
-        goal = plan.get("goal", user_input)
-        error = None
-        if execution_result.get("errors"):
-            error = "; ".join([e.get("error", "") for e in execution_result.get("errors", [])])
+        # =========================================================================
+        # EFFECT-BASED EVALUATION (Phase 4)
+        # =========================================================================
+        effects = plan.get("effects", [])
         
-        evaluation = self.critic_agent.evaluate(
-            goal,
-            {"status": execution_result.get("status"), "data": execution_result},
-            error
-        )
-        
-        # Determine final status
-        if execution_result.get("status") == "success" and not evaluation.get("retry", False):
-            final_status = "success"
-        elif evaluation.get("retry", False):
-            final_status = "retry_needed"
+        if effects:
+            # Use effect-based evaluation (two-tier verification)
+            evaluation = self.critic_agent.evaluate_effects(effects, execution_result)
+            
+            # Determine final status from effect evaluation
+            if evaluation.get("overall_status") == "success":
+                final_status = "success"
+            elif evaluation.get("retry_recommended", False):
+                final_status = "retry_needed"
+            elif evaluation.get("overall_status") == "partial":
+                final_status = "partial"
+            else:
+                final_status = "failure"
         else:
-            final_status = "failure"
+            # Legacy fallback (no effects defined)
+            goal = plan.get("goal", user_input)
+            error = None
+            if execution_result.get("errors"):
+                error = "; ".join([e.get("error", "") for e in execution_result.get("errors", [])])
+            
+            evaluation = self.critic_agent.evaluate(
+                goal,
+                {"status": execution_result.get("status"), "data": execution_result},
+                error
+            )
+            
+            if execution_result.get("status") == "success" and not evaluation.get("retry", False):
+                final_status = "success"
+            elif evaluation.get("retry", False):
+                final_status = "retry_needed"
+            else:
+                final_status = "failure"
         
         return {
             "intent": intent_result,

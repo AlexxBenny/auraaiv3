@@ -1,0 +1,175 @@
+======================================================================
+TDA v3 VERIFICATION TEST RESULTS
+Timestamp: 2026-01-20T00:56:06.632451
+======================================================================
+
+[INIT] Loading SubtaskOrchestrator...
+[INIT] Loaded 12 tools into registry
+[INIT] ✅ SubtaskOrchestrator loaded successfully
+
+
+######################################################################
+# TEST SET 1: Gate Correctness (Structural Only)
+######################################################################
+
+======================================================================
+TEST: 1.1 Simple App Launch
+INPUT: "open chrome"
+======================================================================
+
+[GATE] Classification: single
+[GATE] Expected: single
+✅ GATE: Correct
+
+[PROCESSING] Running full orchestration...
+
+[RESULT SUMMARY]
+  Final Status: success
+  Intent: application_launch
+  Action Type: action
+  Effects Count: 1
+  Steps Count: 1
+
+✅ TEST COMPLETED
+
+======================================================================
+TEST: 1.2 Simple Question
+INPUT: "what time is it"
+======================================================================
+
+[GATE] Classification: single
+[GATE] Expected: single
+✅ GATE: Correct
+
+[PROCESSING] Running full orchestration...
+
+[RESULT SUMMARY]
+  Final Status: information
+  Intent: information_query
+  Action Type: information
+  Effects Count: 0
+  Steps Count: 0
+
+✅ TEST COMPLETED
+
+======================================================================
+TEST: 1.3 Simple Action
+INPUT: "take a screenshot"
+======================================================================
+
+[GATE] Classification: single
+[GATE] Expected: single
+✅ GATE: Correct
+
+[PROCESSING] Running full orchestration...
+
+[RESULT SUMMARY]
+  Final Status: refused
+  Intent: application_launch
+  Action Type: action
+  Effects Count: 1
+  Steps Count: 0
+  REFUSED: {'blocked_tools': ['system.display.take_screenshot'], 'blocking_constraints': [{'constraint': 'target_directory_must_exist', 'type': 'existence', 'resolvable': True, 'resolution_hint': 'Create directory or choose existing path'}]}
+  Response: {'blocked_tools': ['system.display.take_screenshot'], 'blocking_constraints': [{'constraint': 'target_directory_must_exist', 'type': 'existence', 'resolvable': True, 'resolution_hint': 'Create directo...
+
+✅ TEST COMPLETED
+
+
+######################################################################
+# TEST SET 2: Decomposition Sanity
+######################################################################
+
+======================================================================
+TEST: 2.1 Multi-Goal Decomposition
+INPUT: "open chrome and take a screenshot"
+======================================================================
+
+[GATE] Classification: single
+[GATE] Expected: multi
+⚠️  GATE MISMATCH: got 'single', expected 'multi'
+
+[PROCESSING] Running full orchestration...
+
+[RESULT SUMMARY]
+  Final Status: refused
+  Intent: application_launch
+  Action Type: action
+  Effects Count: 2
+  Steps Count: 0
+  REFUSED: {'blocked_tools': ['system.display.take_screenshot'], 'blocking_constraints': [{'constraint': 'target_directory_must_exist', 'type': 'existence', 'resolvable': True, 'resolution_hint': 'Create directory or choose existing path'}]}
+  Response: {'blocked_tools': ['system.display.take_screenshot'], 'blocking_constraints': [{'constraint': 'target_directory_must_exist', 'type': 'existence', 'resolvable': True, 'resolution_hint': 'Create directo...
+
+✅ TEST COMPLETED
+
+
+######################################################################
+# TEST SET 3: Failure Isolation (Critical)
+######################################################################
+
+======================================================================
+TEST: 3.1 Partial Success
+INPUT: "open chrome, delete system32, take a screenshot"
+======================================================================
+
+[GATE] Classification: multi
+[GATE] Expected: multi
+✅ GATE: Correct
+
+[PROCESSING] Running full orchestration...
+
+[RESULT SUMMARY]
+  Decomposition Applied: True
+  Overall Status: partial
+  Subtask Count: 3
+    - subtask_001: success
+    - subtask_002: refused
+      Reason: {'blocked_tools': ['system.apps.request_close'], 'blocking_constraints': [{'constraint': 'window_must_exist', 'type': 'existence', 'resolvable': False, 'resolution_hint': ''}, {'constraint': 'unique_target_required', 'type': 'ambiguity', 'resolvable': True, 'resolution_hint': 'Specify more precise identifier (handle_id, full title, or PID)'}]}
+    - subtask_003: refused
+      Reason: {'blocked_tools': ['system.display.take_screenshot'], 'blocking_constraints': [{'constraint': 'target_directory_must_exist', 'type': 'existence', 'resolvable': True, 'resolution_hint': 'Create directory or choose existing path'}]}
+  Summary: succeeded=1, failed=2, skipped=0
+
+✅ TEST COMPLETED
+
+
+######################################################################
+# TEST SET 4: Ambiguity Tolerance
+######################################################################
+
+======================================================================
+TEST: 4.1 Ambiguous Request
+INPUT: "open the document"
+======================================================================
+
+[GATE] Classification: single
+[GATE] Expected: single
+✅ GATE: Correct
+
+[PROCESSING] Running full orchestration...
+
+[RESULT SUMMARY]
+  Final Status: retry_needed
+  Intent: application_launch
+  Action Type: action
+  Effects Count: 1
+  Steps Count: 1
+
+✅ TEST COMPLETED
+
+
+######################################################################
+# POST-MORTEM MEMORY CHECK
+######################################################################
+
+PostMortem Statistics: {'total': 30, 'outcomes': {'refused': 22, 'information': 4, 'success': 3, 'retry_needed': 1}, 'success_rate': 0.1}
+Recent Failures: 5 records
+  - refused: open the document...
+  - refused: take a screenshot...
+  - refused: open chrome and take a screenshot...
+  - refused: delete the system32 folder...
+  - refused: take a screenshot...
+
+
+======================================================================
+VERIFICATION COMPLETE
+Results saved to: D:\aura\AURA\tests\tda_verification_output.txt
+======================================================================

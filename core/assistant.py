@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from .agent_loop import AgentLoop
+from .orchestrator import SubtaskOrchestrator
 from .context import SessionContext
 from tools.registry import get_registry
 from tools.loader import load_all_tools
@@ -24,8 +24,12 @@ class Assistant:
         # Auto-discover and register all tools
         self._register_tools()
         
-        # Initialize agent loop (after tools are registered)
-        self.agent_loop = AgentLoop()
+        # Sync Qdrant index (non-fatal if fails)
+        self._sync_semantic_index()
+        
+        # Initialize subtask orchestrator (after tools are registered)
+        # This replaces AgentLoop as the entry point for TDA v3
+        self.orchestrator = SubtaskOrchestrator()
         
         logging.info("Assistant initialized (agentic mode)")
     
@@ -35,6 +39,16 @@ class Assistant:
         registry = get_registry()
         
         logging.info(f"Auto-registered {len(discovered)} tools from discovery")
+    
+    def _sync_semantic_index(self):
+        """Sync tool index to Qdrant for semantic search"""
+        try:
+            from core.semantic.tool_index import sync_index
+            result = sync_index()
+            logging.info(f"Qdrant: {result}")
+        except Exception as e:
+            # Non-fatal - system works without semantic search
+            logging.warning(f"Qdrant sync failed (non-fatal): {e}")
     
     def start(self):
         """Start the assistant"""
@@ -58,7 +72,7 @@ class Assistant:
                     break
                 
                 # Process through agentic loop
-                result = self.agent_loop.process(user_input)
+                result = self.orchestrator.process(user_input)
                 
                 # Display result
                 self._display_result(result)

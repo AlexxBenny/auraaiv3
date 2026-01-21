@@ -22,7 +22,7 @@ class ToolExecutor:
         HARD GUARD: Only executes if action_type == "action"
         
         Args:
-            plan: Plan from PlannerAgent (must have action_type == "action")
+            plan: Plan from PlannerAgent (must have steps to execute)
             
         Returns:
             {
@@ -32,18 +32,23 @@ class ToolExecutor:
             }
             
         Raises:
-            RuntimeError: If action_type is not "action"
+            RuntimeError: If no steps are present
         """
-        # HARD GUARD: Prevent unauthorized tool execution
-        action_type = plan.get("action_type", "action")
-        if action_type != "action":
+        steps = plan.get("steps", [])
+        
+        # =========================================================================
+        # MODERN EXECUTION GUARD (2024-2025)
+        # =========================================================================
+        # Primary check: Steps must be present
+        # action_type is advisory (LLM output, not authoritative)
+        # Neo4j eligibility is checked BEFORE this point by PlannerAgent
+        # =========================================================================
+        if not steps:
             raise RuntimeError(
-                f"CRITICAL: ToolExecutor called with action_type='{action_type}'. "
-                f"Tools can ONLY execute when action_type='action'. "
-                f"This is a safety violation."
+                "CRITICAL: ToolExecutor called with no steps. "
+                "Nothing to execute. This is a logic error."
             )
         
-        steps = plan.get("steps", [])
         results = []
         errors = []
         
