@@ -9,3 +9,6 @@ wmi>=1.5.1
 comtypes>=1.1.14
 pycaw>=20230407
 PyYAML>=6.0
+
+# GUI dependencies
+aiohttp>=3.8.0              # Web GUI (WebSocket server)

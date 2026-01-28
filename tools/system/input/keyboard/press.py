@@ -46,6 +46,11 @@ class KeyboardPress(Tool):
         return True # Pressing 'enter' often changes screen
 
     @property
+    def requires_focus(self) -> bool:
+        """Key presses MUST have a focused window to receive input."""
+        return True
+
+    @property
     def schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

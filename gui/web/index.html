@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AURA - Advanced Neural Network Interface</title>
+    <meta name="description" content="AURA is an advanced AI assistant with voice recognition and neural network capabilities">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="background-container">
+        <div class="stars"></div>
+        <div class="twinkling"></div>
+        <div class="neural-grid"></div>
+    </div>
+
+    <!-- Main Application Container -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header glass-effect">
+            <div class="logo-section">
+                <h1 class="logo-text">AURA</h1>
+                <span class="logo-subtitle">Advanced Neural Interface</span>
+            </div>
+            <div class="status-indicators">
+                <div class="status-item online">
+                    <span class="status-dot pulse"></span>
+                    <span>NEURAL ACTIVE</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-dot" id="voice-status-dot"></span>
+                    <span id="voice-status-text">VOICE READY</span>
+                </div>
+            </div>
+            <div class="header-controls">
+                <button class="icon-btn" id="settings-btn" title="Settings">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+                <button class="icon-btn" id="clear-btn" title="Clear Chat">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Chat Messages Area -->
+            <div class="chat-container glass-effect" id="chat-container">
+                <div class="chat-messages" id="chat-messages">
+                    <!-- Messages will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Floating Voice Orb Section -->
+            <div class="voice-orb-container" id="voice-orb-container">
+                <div class="orb-glow-rings">
+                    <div class="glow-ring ring-1"></div>
+                    <div class="glow-ring ring-2"></div>
+                    <div class="glow-ring ring-3"></div>
+                    <div class="glow-ring ring-4"></div>
+                </div>
+                <div class="voice-orb" id="voice-orb">
+                    <div class="orb-inner">
+                        <div class="orb-core"></div>
+                        <div class="orb-particles">
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                            <span class="particle"></span>
+                        </div>
+                        <div class="wave-bars">
+                            <span class="wave-bar"></span>
+                            <span class="wave-bar"></span>
+                            <span class="wave-bar"></span>
+                            <span class="wave-bar"></span>
+                            <span class="wave-bar"></span>
+                            <span class="wave-bar"></span>
+                            <span class="wave-bar"></span>
+                        </div>
+                    </div>
+                    <div class="orb-label" id="orb-label">Click to speak</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Input Area -->
+        <footer class="input-section glass-effect">
+            <div class="input-wrapper">
+                <div class="input-container">
+                    <textarea 
+                        id="message-input" 
+                        placeholder="Type your command or click the orb to speak..."
+                        rows="1"
+                    ></textarea>
+                    <div class="input-actions">
+                        <button class="action-btn voice-toggle" id="voice-toggle" title="Toggle Voice Mode">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" y1="19" x2="12" y2="23"></line>
+                                <line x1="8" y1="23" x2="16" y2="23"></line>
+                            </svg>
+                        </button>
+                        <button class="action-btn send-btn" id="send-btn" title="Send Message">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                            <span>EXECUTE</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="input-hint">
+                <span>Press <kbd>Enter</kbd> to send • <kbd>Shift+Enter</kbd> for new line</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal glass-effect">
+            <div class="modal-header">
+                <h2>AURA Configuration</h2>
+                <button class="modal-close" id="close-settings">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div class="settings-section">
+                    <h3>System Status</h3>
+                    <div class="status-grid">
+                        <div class="status-card">
+                            <span class="status-icon success">✓</span>
+                            <span class="status-label">AI Client</span>
+                            <span class="status-value">Online</span>
+                        </div>
+                        <div class="status-card">
+                            <span class="status-icon success">✓</span>
+                            <span class="status-label">Voice Interface</span>
+                            <span class="status-value">Active</span>
+                        </div>
+                        <div class="status-card">
+                            <span class="status-icon success">✓</span>
+                            <span class="status-label">Code Executor</span>
+                            <span class="status-value">Ready</span>
+                        </div>
+                        <div class="status-card">
+                            <span class="status-icon success">✓</span>
+                            <span class="status-label">Neural Network</span>
+                            <span class="status-value">Active</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Voice Settings</h3>
+                    <div class="setting-item">
+                        <label>Voice Recognition Language</label>
+                        <select id="voice-language">
+                            <option value="en-US">English (US)</option>
+                            <option value="en-GB">English (UK)</option>
+                            <option value="es-ES">Spanish</option>
+                            <option value="fr-FR">French</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label>TTS Speed</label>
+                        <input type="range" id="tts-speed" min="0.5" max="2" step="0.1" value="1">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

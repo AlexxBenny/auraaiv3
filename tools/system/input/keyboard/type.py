@@ -46,6 +46,11 @@ class KeyboardType(Tool):
         return False
 
     @property
+    def requires_focus(self) -> bool:
+        """Typing MUST have a focused window to receive input."""
+        return True
+
+    @property
     def schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

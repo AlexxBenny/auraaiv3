@@ -46,6 +46,11 @@ class MouseClick(Tool):
         return True # Should usually verify effect
 
     @property
+    def requires_focus(self) -> bool:
+        """Clicks MUST have a focused window to avoid stray input."""
+        return True
+
+    @property
     def schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

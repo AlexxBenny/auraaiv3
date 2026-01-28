@@ -1,6 +1,7 @@
-"""New Assistant - Orchestrates agentic loop
+"""New Assistant - Orchestrates JARVIS architecture
 
 This replaces the old assistant.py that used exec(generated_code)
+Updated for JARVIS architecture (no effects, eligibility, Qdrant)
 """
 
 import logging
@@ -11,27 +12,23 @@ from typing import Optional, Dict, Any
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from .orchestrator import SubtaskOrchestrator
+from .orchestrator import Orchestrator
 from .context import SessionContext
 from tools.registry import get_registry
 from tools.loader import load_all_tools
 
 
 class Assistant:
-    """New agentic assistant - NO code execution"""
+    """JARVIS-style assistant - NO code execution, intent-based routing"""
     
     def __init__(self):
         # Auto-discover and register all tools
         self._register_tools()
         
-        # Sync Qdrant index (non-fatal if fails)
-        self._sync_semantic_index()
+        # Initialize orchestrator (JARVIS mode)
+        self.orchestrator = Orchestrator()
         
-        # Initialize subtask orchestrator (after tools are registered)
-        # This replaces AgentLoop as the entry point for TDA v3
-        self.orchestrator = SubtaskOrchestrator()
-        
-        logging.info("Assistant initialized (agentic mode)")
+        logging.info("Assistant initialized (JARVIS mode)")
     
     def _register_tools(self):
         """Auto-discover and register all available tools"""
@@ -40,21 +37,11 @@ class Assistant:
         
         logging.info(f"Auto-registered {len(discovered)} tools from discovery")
     
-    def _sync_semantic_index(self):
-        """Sync tool index to Qdrant for semantic search"""
-        try:
-            from core.semantic.tool_index import sync_index
-            result = sync_index()
-            logging.info(f"Qdrant: {result}")
-        except Exception as e:
-            # Non-fatal - system works without semantic search
-            logging.warning(f"Qdrant sync failed (non-fatal): {e}")
-    
     def start(self):
         """Start the assistant"""
-        print("🤖 AURA Agentic Assistant Starting...")
+        print("🤖 AURA Assistant (JARVIS Mode)")
         print("=" * 50)
-        print("Mode: Agentic (NO code execution)")
+        print("Mode: Intent-based routing (JARVIS)")
         print(f"Available tools: {len(get_registry().list_all())}")
         print()
         
@@ -71,7 +58,7 @@ class Assistant:
                     print("👋 Goodbye!")
                     break
                 
-                # Process through agentic loop
+                # Process through orchestrator
                 result = self.orchestrator.process(user_input)
                 
                 # Display result
@@ -85,64 +72,92 @@ class Assistant:
     
     def _display_result(self, result: Dict[str, Any]):
         """Display execution result"""
-        final_status = result.get("final_status")
+        status = result.get("status", "unknown")
+        result_type = result.get("type", "unknown")
         
-        # Handle information/planning/system responses
-        if final_status in ["information", "planning", "system"]:
+        # Information response
+        if result_type == "information":
             response = result.get("response", "No response provided")
             print(f"\n💬 {response}")
             return
         
-        if final_status == "requires_new_skill":
-            print(f"\n⚠️  {result.get('message', 'New skill required')}")
-            
-            # Display proposal details
-            proposal = result.get("proposal", {})
-            validation = result.get("validation", {})
-            proposal_id = result.get("proposal_id")
-            
-            if proposal:
-                tool_name = proposal.get("proposed_tool", {}).get("name", "unknown")
-                description = proposal.get("proposed_tool", {}).get("description", "")
-                print(f"   Proposed Tool: {tool_name}")
-                print(f"   Description: {description}")
-                if proposal_id:
-                    print(f"   Proposal ID: {proposal_id}")
-            
-            if validation:
-                if not validation.get("valid"):
-                    print(f"   Validation Errors: {', '.join(validation.get('errors', []))}")
-                if validation.get("warnings"):
-                    print(f"   Warnings: {', '.join(validation.get('warnings', []))}")
-            
-            scaffold_path = result.get("scaffold_path")
-            if scaffold_path:
-                print(f"   Scaffold generated: {scaffold_path}")
-            
-            print("   Review proposals in: ~/.aura/procedural_memory.json")
+        # Fallback response
+        if result_type == "fallback":
+            response = result.get("response", "")
+            if result.get("status") == "clarification_needed":
+                print(f"\n❓ {response}")
+            else:
+                print(f"\n💬 {response}")
+            return
         
-        elif final_status == "success":
-            print("\n✅ Task completed successfully!")
-            execution = result.get("execution", {})
-            if execution.get("results"):
-                for step_result in execution["results"]:
-                    tool_result = step_result.get("result", {})
-                    if "path" in tool_result:
-                        print(f"   📁 {tool_result['path']}")
-                    if "message" in tool_result:
-                        print(f"   ℹ️  {tool_result['message']}")
+        # Action result
+        if result_type == "action":
+            if status == "success":
+                # ISSUE 2 FIX: Response is now REQUIRED for success
+                # Missing response is a bug in ResponsePipeline, not a feature
+                response = result.get("response")
+                if not response:
+                    # Defensive: generate minimal response if pipeline failed
+                    import logging
+                    logging.error(f"ResponsePipeline bug: no response for {result.get('tool')}")
+                    response = f"Completed {result.get('tool', 'action').split('.')[-1].replace('_', ' ')}"
+                
+                print(f"\n✅ {response}")
+                
+                # Show additional info if provided
+                action_result = result.get("result", {})
+                if action_result.get("path"):
+                    print(f"   Path: {action_result['path']}")
+                    
+            elif status == "blocked":
+                # Generate response for blocked status via pipeline if not present
+                response = result.get("response")
+                if response:
+                    print(f"\n⚠️  {response}")
+                else:
+                    print(f"\n⚠️  Action blocked: {result.get('reason')}")
+                if result.get("suggestion"):
+                    print(f"   Suggestion: {result['suggestion']}")
+            elif status == "refused":
+                # Confirmation gate
+                response = result.get("response")
+                if response:
+                    print(f"\n⚠️  {response}")
+                else:
+                    print(f"\n⚠️  Action refused - confirmation required")
+            else:
+                print(f"\n❌ Action failed: {result.get('error', 'Unknown error')}")
+            return
         
-        elif final_status == "retry_needed":
-            print("\n🔄 Retry recommended")
-            evaluation = result.get("evaluation", {})
-            print(f"   Reason: {evaluation.get('retry_reason', 'Unknown')}")
+        # Multi result
+        if result_type == "multi":
+            results = result.get("results", [])
+            summary = result.get("summary", f"{len(results)} actions")
+            
+            if status == "success":
+                print(f"\n✅ All actions completed! ({summary})")
+            elif status == "partial":
+                print(f"\n⚠️  Some actions failed ({summary})")
+            elif status == "blocked":
+                print(f"\n⚠️  Actions blocked")
+                for issue in result.get("issues", []):
+                    print(f"   • {issue.get('issue')}")
+            else:
+                print(f"\n❌ Actions failed")
+                if result.get("unresolved"):
+                    for u in result["unresolved"]:
+                        print(f"   • {u['description']}: {u['reason']}")
+            
+            # Show individual results
+            for r in results:
+                status_icon = "✅" if r.get("status") == "success" else "❌"
+                print(f"   {status_icon} {r.get('id', '?')}: {r.get('tool', 'unknown')}")
+            return
         
-        else:
-            print("\n❌ Task failed")
-            execution = result.get("execution", {})
-            if execution.get("errors"):
-                for error in execution["errors"]:
-                    print(f"   Error: {error.get('error', 'Unknown error')}")
+        # Fallback for unknown result types
+        print(f"\n📋 Result: status={status}, type={result_type}")
+        if result.get("response"):
+            print(f"   {result['response']}")
 
 
 def main():
@@ -160,4 +175,3 @@ def main():
 if __name__ == "__main__":
     import sys
     sys.exit(main())
-

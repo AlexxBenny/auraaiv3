@@ -70,6 +70,46 @@ class Tool(ABC):
         """Does this tool require visual checks to confirm success?"""
         return False
 
+    # =========================================================================
+    # MANDATORY PRECONDITIONS - Enforced by ToolExecutor, NOT LLM
+    # =========================================================================
+    
+    @property
+    def requires_focus(self) -> bool:
+        """Does this tool require a focused window to work?
+        
+        If True, ToolExecutor will REFUSE to execute if no window is focused.
+        Examples: keyboard.type, mouse.click
+        """
+        return False
+    
+    @property
+    def requires_active_app(self) -> Optional[str]:
+        """If set, tool requires a specific app to be focused.
+        
+        Value is a process name pattern (e.g., "notepad", "chrome").
+        ToolExecutor will REFUSE if foreground window doesn't match.
+        """
+        return None
+    
+    @property
+    def requires_unlocked_screen(self) -> bool:
+        """Does this tool require an unlocked screen?
+        
+        If True, ToolExecutor will REFUSE if screen appears locked.
+        Default True for safety - most actions need unlocked screen.
+        """
+        return True
+    
+    @property
+    def is_destructive(self) -> bool:
+        """Can this tool cause data loss or irreversible changes?
+        
+        If True, requires additional confirmation or safety checks.
+        Examples: file delete, request_close (unsaved data)
+        """
+        return False
+
     @abstractmethod
     def execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the tool with given arguments
@@ -113,7 +153,7 @@ class Tool(ABC):
         return True
     
     def to_dict(self) -> Dict[str, Any]:
-        """Export tool metadata for LLM"""
+        """Export tool metadata for LLM and executor"""
         return {
             "name": self.name,
             "description": self.description,
@@ -122,6 +162,11 @@ class Tool(ABC):
             "side_effects": self.side_effects,
             "stabilization_time_ms": self.stabilization_time_ms,
             "reversible": self.reversible,
-            "requires_visual_confirmation": self.requires_visual_confirmation
+            "requires_visual_confirmation": self.requires_visual_confirmation,
+            # Preconditions (enforced by executor, not LLM)
+            "requires_focus": self.requires_focus,
+            "requires_active_app": self.requires_active_app,
+            "requires_unlocked_screen": self.requires_unlocked_screen,
+            "is_destructive": self.is_destructive,
         }
 

@@ -1,385 +1,301 @@
-"""Subtask Orchestrator - Top-level orchestration with Task Decomposition
+"""Orchestrator - Main entry point for JARVIS architecture
 
-This is the NEW entry point that replaces AgentLoop.process() as the top-level
-orchestrator. It implements the TDA v3 architecture:
+JARVIS Architecture Role:
+- Routes to single-query or multi-query pipeline based on DecompositionGate
+- For single queries: uses intent-based authoritative routing
+- For multi queries: uses dependency-aware execution
 
-1. Decomposition Gate (cheap LLM) -> single/multi classification
-2. Task Decomposition Agent (if multi) -> subtasks
-3. Per-subtask: IntentAgent -> PlannerAgent -> AgentLoop -> CriticAgent
-4. Post-mortem memory (write-only)
-
-LOCKED INVARIANTS (from v3 design):
-- Gate is structural, not semantic (Invariant 1)
-- Post-mortem memory is never read during execution (Invariant 2)
-- No retries or tool alternatives at this layer (Invariant 3)
-
-See: task_decomposition_agent_design_v3_final.md
+Flow:
+1. DecompositionGate → single/multi
+2. Single: IntentAgent → IntentRouter → pipeline
+3. Multi: TDA → action resolution → dependency execution
 """
 
 import logging
-from typing import Dict, Any, List, Set, Optional
-from dataclasses import dataclass
+from typing import Dict, Any
 
 from agents.decomposition_gate import DecompositionGate
-from agents.task_decomposition import TaskDecompositionAgent
 from agents.intent_agent import IntentAgent
-from agents.planner_agent import PlannerAgent
-from core.agent_loop import AgentLoop
-from memory.postmortem import PostMortemMemory
+from agents.task_decomposition import TaskDecompositionAgent
+from core.intent_router import IntentRouter
+from core.tool_resolver import ToolResolver
+from core.pipelines import handle_information, handle_action, handle_multi, handle_fallback
+from core.context import SessionContext
+from execution.executor import ToolExecutor
+from memory.ambient import get_ambient_memory
+from models.model_manager import get_model_manager
+
+# Progress streaming (GUI only, no-op for terminal)
+try:
+    from gui.progress import ProgressEmitter, NULL_EMITTER
+except ImportError:
+    # Fallback if gui module not available
+    class ProgressEmitter:
+        def __init__(self, callback=None): pass
+        def emit(self, msg): pass
+    NULL_EMITTER = ProgressEmitter()
 
 
-@dataclass
-class SubtaskResult:
-    """Result of a single subtask execution."""
-    subtask_id: str
-    status: str
-    intent: Optional[Dict[str, Any]] = None
-    plan: Optional[Dict[str, Any]] = None
-    execution: Optional[Dict[str, Any]] = None
-    evaluation: Optional[Dict[str, Any]] = None
-    reason: Optional[str] = None
-
-
-class SubtaskOrchestrator:
-    """
-    Top-level orchestrator with Task Decomposition.
+class Orchestrator:
+    """Main orchestrator - routes to single or multi pipeline.
     
-    Implements the TDA v3 architecture with:
-    - Decomposition Gate (laziness)
-    - Task Decomposition Agent (goal reasoning)
-    - Per-subtask IntentAgent (goal-scoped intent)
-    - Existing AgentLoop for execution (unchanged)
-    
-    INVARIANTS (DO NOT VIOLATE):
-    - No retries or tool alternatives
-    - No reads from PostMortemMemory during execution
-    - Gate is structural only
+    This replaces the old SubtaskOrchestrator with simpler, intent-based routing.
     """
     
     def __init__(self):
+        logging.info("Initializing Orchestrator (JARVIS mode)")
+        
+        # Core agents
         self.gate = DecompositionGate()
-        self.tda = TaskDecompositionAgent()
         self.intent_agent = IntentAgent()
-        self.planner_agent = PlannerAgent()
-        self.agent_loop = AgentLoop()
-        self.postmortem = PostMortemMemory()
+        self.tda = TaskDecompositionAgent()
         
-        logging.info("SubtaskOrchestrator initialized")
+        # Execution components
+        self.executor = ToolExecutor()
+        self.tool_resolver = ToolResolver()
+        self.context = SessionContext()
+        
+        # Ambient memory (starts background monitoring)
+        self.ambient = get_ambient_memory()
+        
+        # LLM for responses
+        self.model_manager = get_model_manager()
+        self.response_llm = self.model_manager.get_planner_model()
+        
+        # Setup intent router
+        self.router = IntentRouter()
+        self._register_pipelines()
+        
+        logging.info("Orchestrator initialized")
     
-    def process(self, user_input: str) -> Dict[str, Any]:
+    def _register_pipelines(self):
+        """Register intent-specific pipelines.
+        
+        Intent taxonomy (10 categories):
+        - application_launch / application_control: App lifecycle
+        - system_query / screen_capture / screen_perception / input_control: System ops
+        - file_operation / browser_control / office_operation: Future domains
+        - information_query: Pure LLM response
         """
-        Main entry point. Processes user input through TDA v3 flow.
+        # Pure LLM (no tools)
+        self.router.register("information_query", self._handle_info)
         
-        Flow:
-        1. Decomposition Gate -> single/multi
-        2. If multi: TDA -> subtasks
-        3. For each subtask: IntentAgent -> PlannerAgent -> AgentLoop
-        4. Aggregate results
+        # Application lifecycle
+        self.router.register("application_launch", self._handle_action)
+        self.router.register("application_control", self._handle_action)
+        
+        # Window management (Phase 2B')
+        self.router.register("window_management", self._handle_action)
+        
+        # System operations (all use action pipeline with tool resolution)
+        self.router.register("system_query", self._handle_action)
+        self.router.register("screen_capture", self._handle_action)
+        self.router.register("screen_perception", self._handle_action)
+        self.router.register("input_control", self._handle_action)
+        
+        # System control (audio, display, power actions)
+        self.router.register("system_control", self._handle_action)
+        
+        # Clipboard operations
+        self.router.register("clipboard_operation", self._handle_action)
+        
+        # Memory recall (Phase 3A - episodic memory)
+        self.router.register("memory_recall", self._handle_action)
+        
+        # Future domains (route to action, will fail gracefully if no tools)
+        self.router.register("file_operation", self._handle_action)
+        self.router.register("browser_control", self._handle_action)
+        self.router.register("office_operation", self._handle_action)
+        
+        # Unknown → try action, fall back to reasoning
+        self.router.register("unknown", self._handle_action)
+        
+        # Fallback handler for low confidence
+        self.router.set_fallback(self._handle_fallback)
+    
+    def process(self, user_input: str, progress: ProgressEmitter = None) -> Dict[str, Any]:
+        """Main entry point - process user input.
+        
+        Args:
+            user_input: User's command/question
+            progress: Optional ProgressEmitter for GUI streaming
+            
+        Returns:
+            Result dict with status, type, response/results
         """
+        if progress is None:
+            progress = NULL_EMITTER
         
-        # =====================================================================
-        # STEP 1: DECOMPOSITION GATE (cheap LLM)
-        # =====================================================================
-        gate_result = self.gate.classify(user_input)
-        logging.info(f"Gate classification: {gate_result}")
+        logging.info(f"Processing: {user_input[:50]}...")
         
-        if gate_result == "single":
-            # FAST PATH: Skip TDA, treat input as single subtask
-            subtasks = [{
-                "id": "subtask_001",
-                "description": user_input,
-                "depends_on": [],
-                "is_optional": False
-            }]
-            decomposition_applied = False
-            logging.info("Fast path: single goal, skipping TDA")
+        # Update session
+        self.context.start_task({"input": user_input})
+        
+        # Get current context from ambient memory
+        context = self._get_context()
+        
+        # STEP 1: Semantic segmentation with action extraction
+        gate_result = self.gate.classify_with_actions(user_input)
+        classification = gate_result.get("classification", "single")
+        logging.info(f"Gate classification: {classification}")
+        progress.emit("Analyzing your request...")
+        
+        if classification == "single":
+            result = self._process_single(user_input, context, progress)
         else:
-            # FULL PATH: Would run TDA (Phase 2)
-            # For now, fall back to single subtask until TDA is implemented
-            if self.tda is None:
-                logging.info("TDA not yet implemented, falling back to single subtask")
-                subtasks = [{
-                    "id": "subtask_001",
-                    "description": user_input,
-                    "depends_on": [],
-                    "is_optional": False
-                }]
-                decomposition_applied = False
-            else:
-                try:
-                    tda_result = self.tda.decompose(user_input)
-                    subtasks = tda_result.get("subtasks", [])
-                    decomposition_applied = tda_result.get("decomposition_applied", True)
-                    
-                    if not subtasks:
-                        # TDA returned empty - fallback
-                        subtasks = [{
-                            "id": "subtask_001",
-                            "description": user_input,
-                            "depends_on": [],
-                            "is_optional": False
-                        }]
-                        decomposition_applied = False
-                except Exception as e:
-                    logging.error(f"TDA failed: {e}")
-                    subtasks = [{
-                        "id": "subtask_001",
-                        "description": user_input,
-                        "depends_on": [],
-                        "is_optional": False
-                    }]
-                    decomposition_applied = False
+            # Pass pre-extracted actions to avoid redundant decomposition
+            progress.emit("Breaking down multi-step request...")
+            result = self._process_multi(user_input, context, gate_result, progress)
         
-        # =====================================================================
-        # STEP 2: EXECUTE SUBTASKS
-        # =====================================================================
-        subtask_results: List[SubtaskResult] = []
-        completed_ids: Set[str] = set()
-        failed_ids: Set[str] = set()
+        # Update session
+        self.context.complete_task(result)
         
-        for subtask in self._dependency_order(subtasks):
-            subtask_id = subtask["id"]
-            description = subtask["description"]
-            depends_on = subtask.get("depends_on", [])
-            is_optional = subtask.get("is_optional", False)
-            
-            # Check dependencies
-            if any(dep in failed_ids for dep in depends_on) and not is_optional:
-                subtask_results.append(SubtaskResult(
-                    subtask_id=subtask_id,
-                    status="skipped",
-                    reason=f"Dependency failed: {[d for d in depends_on if d in failed_ids]}"
-                ))
-                failed_ids.add(subtask_id)
-                continue
-            
-            # -----------------------------------------------------------------
-            # STEP 2a: IntentAgent (per subtask) - MANDATORY
-            # -----------------------------------------------------------------
-            intent_result = self.intent_agent.classify(description)
-            subtask_intent = intent_result.get("intent", "unknown")
-            logging.info(f"Subtask {subtask_id} intent: {subtask_intent}")
-            
-            # -----------------------------------------------------------------
-            # STEP 2b: PlannerAgent (per subtask)
-            # -----------------------------------------------------------------
-            plan = self.planner_agent.plan(description, subtask_intent)
-            
-            if plan.get("refused", False):
-                subtask_results.append(SubtaskResult(
-                    subtask_id=subtask_id,
-                    status="refused",
-                    intent=intent_result,
-                    plan=plan,
-                    reason=str(plan.get("refusal", {}))
-                ))
+        return result
+    
+    def _process_single(self, user_input: str, context: Dict[str, Any], 
+                        progress: ProgressEmitter = NULL_EMITTER) -> Dict[str, Any]:
+        """Fast path for single queries.
+        
+        Flow: IntentAgent → IntentRouter → pipeline
+        """
+        # STEP 2: Intent classification (AUTHORITATIVE)
+        intent_result = self.intent_agent.classify(user_input)
+        intent = intent_result.get("intent", "unknown")
+        confidence = intent_result.get("confidence", 0)
+        
+        logging.info(f"Intent: {intent} (confidence: {confidence:.2f})")
+        progress.emit(f"Identified: {intent.replace('_', ' ')}")
+        
+        # STEP 3: Route to intent-specific pipeline
+        # IntentRouter handles confidence threshold internally
+        result = self.router.route(
+            intent_result, user_input, context,
+            progress=progress  # Pass to pipeline handlers
+        )
+        
+        # Add metadata
+        result["intent"] = intent
+        result["confidence"] = confidence
+        result["mode"] = "single"
+        
+        return result
+    
+    def _process_multi(self, user_input: str, context: Dict[str, Any],
+                        gate_result: Dict[str, Any] = None,
+                        progress: ProgressEmitter = NULL_EMITTER) -> Dict[str, Any]:
+        """Multi-action path with dependency-aware execution.
+        
+        Flow: Gate actions → intent resolution per action → dependency execution
+        
+        Args:
+            user_input: Original user input
+            context: System context
+            gate_result: Output from gate.classify_with_actions() (optional)
+            progress: Optional ProgressEmitter for GUI streaming
+        """
+        # Use pre-extracted actions from gate (avoids redundant TDA call)
+        gate_actions = gate_result.get("actions", []) if gate_result else []
+        
+        if not gate_actions:
+            # Fallback to TDA if gate didn't extract actions
+            logging.warning("Gate provided no actions, falling back to TDA")
+            decomposition = self.tda.decompose(user_input)
+            actions = decomposition.get("subtasks", [])
+            formatted_actions = []
+            for i, subtask in enumerate(actions):
+                formatted_actions.append({
+                    "id": f"a{i+1}",
+                    "description": subtask.get("description", ""),
+                    "depends_on": subtask.get("dependencies", [])
+                })
+        else:
+            # Convert gate actions to multi-pipeline format
+            formatted_actions = []
+            for i, action in enumerate(gate_actions):
+                action_id = f"a{i+1}"
+                depends_on = []
                 
-                # Post-mortem: record refusal (Phase 4)
-                self._record_postmortem(
-                    description=description,
-                    intent=subtask_intent,
-                    plan=plan,
-                    outcome="refused"
-                )
+                # Convert boolean depends_on_previous to actual dependency list
+                if action.get("depends_on_previous", False) and i > 0:
+                    depends_on = [f"a{i}"]  # Depends on previous action
                 
-                if not is_optional:
-                    failed_ids.add(subtask_id)
-                continue
-            
-            # -----------------------------------------------------------------
-            # STEP 2c-2e: Execute through AgentLoop
-            # -----------------------------------------------------------------
-            execution = self._execute_through_loop(plan, intent_result, description)
-            final_status = execution.get("final_status", "unknown")
-            
-            subtask_results.append(SubtaskResult(
-                subtask_id=subtask_id,
-                status=final_status,
-                intent=intent_result,
-                plan=plan,
-                execution=execution.get("execution"),
-                evaluation=execution.get("evaluation")
-            ))
-            
-            # Post-mortem: record outcome (Phase 4)
-            self._record_postmortem(
-                description=description,
-                intent=subtask_intent,
-                plan=plan,
-                outcome=final_status,
-                execution=execution
-            )
-            
-            if final_status in ["success", "information", "planning", "system"]:
-                completed_ids.add(subtask_id)
-            elif not is_optional:
-                failed_ids.add(subtask_id)
+                formatted_actions.append({
+                    "id": action_id,
+                    "description": action.get("description", ""),
+                    "depends_on": depends_on
+                })
         
-        # =====================================================================
-        # STEP 3: AGGREGATE AND RETURN
-        # =====================================================================
-        return self._aggregate_results(
+        if not formatted_actions:
+            # Fallback to single if decomposition fails
+            logging.warning("Multi decomposition failed, falling back to single")
+            return self._process_single(user_input, context)
+        
+        logging.info(f"Executing {len(formatted_actions)} actions with dependencies")
+        
+        # STEP 3: Execute with dependency awareness
+        result = handle_multi(
+            actions=formatted_actions,
+            intent_agent=self.intent_agent,
+            tool_resolver=self.tool_resolver,
+            executor=self.executor,
+            context=context
+        )
+        
+        result["mode"] = "multi"
+        return result
+    
+    def _handle_info(self, user_input: str, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Handle information queries."""
+        progress = kwargs.get("progress", NULL_EMITTER)
+        progress.emit("Looking up information...")
+        return handle_information(user_input, context, self.response_llm)
+    
+    def _handle_action(self, user_input: str, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Handle action queries.
+        
+        Note: High intent confidence ≠ guaranteed executability.
+        If tool resolution fails, route to fallback for reasoning.
+        """
+        progress = kwargs.get("progress", NULL_EMITTER)
+        
+        # Re-classify to get intent (router already has it, but we need it for tool_resolver)
+        intent_result = self.intent_agent.classify(user_input)
+        intent = intent_result.get("intent", "unknown")
+        
+        result = handle_action(
             user_input=user_input,
-            decomposition_applied=decomposition_applied,
-            subtask_results=subtask_results
+            intent=intent,
+            context=context,
+            tool_resolver=self.tool_resolver,
+            executor=self.executor,
+            progress=progress  # Pass progress to pipeline
+        )
+        
+        # If action pipeline couldn't resolve a tool, try fallback reasoning
+        if result.get("status") == "needs_fallback":
+            logging.info("Action resolution failed, trying fallback reasoning")
+            return self._handle_fallback(user_input, context, **kwargs)
+        
+        return result
+    
+    def _handle_fallback(self, user_input: str, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Handle low-confidence or unknown intents."""
+        progress = kwargs.get("progress", NULL_EMITTER)
+        progress.emit("Thinking about how to help...")
+        return handle_fallback(
+            user_input=user_input,
+            context=context,
+            executor=self.executor
         )
     
-    def _dependency_order(self, subtasks: List[Dict]) -> List[Dict]:
-        """
-        Topological sort of subtasks based on depends_on.
-        
-        Returns subtasks in execution order (dependencies first).
-        """
-        if not subtasks:
-            return subtasks
-        
-        # Build adjacency info
-        id_to_subtask = {s["id"]: s for s in subtasks}
-        in_degree = {s["id"]: 0 for s in subtasks}
-        
-        for subtask in subtasks:
-            for dep in subtask.get("depends_on", []):
-                if dep in in_degree:
-                    in_degree[subtask["id"]] += 1
-        
-        # Kahn's algorithm
-        queue = [sid for sid, deg in in_degree.items() if deg == 0]
-        ordered = []
-        
-        while queue:
-            current_id = queue.pop(0)
-            ordered.append(id_to_subtask[current_id])
-            
-            for subtask in subtasks:
-                if current_id in subtask.get("depends_on", []):
-                    in_degree[subtask["id"]] -= 1
-                    if in_degree[subtask["id"]] == 0:
-                        queue.append(subtask["id"])
-        
-        if len(ordered) != len(subtasks):
-            # Cycle detected - use original order as fallback
-            logging.warning("Dependency cycle detected, using original order")
-            return subtasks
-        
-        return ordered
-    
-    def _execute_through_loop(self, plan: Dict, intent_result: Dict, 
-                               user_input: str) -> Dict[str, Any]:
-        """
-        Execute a plan through the existing AgentLoop flow.
-        
-        This reuses existing AgentLoop logic WITHOUT modification.
-        """
-        effects = plan.get("effects", [])
-        
-        if not effects:
-            # No effects - pure information/planning/system path
-            action_type = plan.get("action_type", "information")
-            if action_type == "system":
-                return self.agent_loop._handle_system(plan, intent_result, user_input)
-            elif action_type == "planning":
-                return self.agent_loop._handle_planning(plan, intent_result, user_input)
-            else:
-                return self.agent_loop._handle_information(plan, intent_result, user_input)
-        
-        # Effects present - action path
-        # Check preconditions (reuse AgentLoop methods)
-        effects = self.agent_loop._check_preconditions(effects)
-        effects, all_satisfied = self.agent_loop._check_already_satisfied(effects)
-        
-        if all_satisfied:
-            return {
-                "final_status": "success",
-                "evaluation": {"all_effects_pre_satisfied": True}
-            }
-        
-        # Execute pending effects
-        pending_effects = [e for e in effects if e.get("state") == "PENDING"]
-        return self.agent_loop._handle_action(plan, intent_result, user_input, pending_effects)
-    
-    def _record_postmortem(self, description: str, intent: str, plan: Dict,
-                           outcome: str, execution: Optional[Dict] = None) -> None:
-        """
-        Record execution outcome to PostMortemMemory.
-        
-        INVARIANT: Write-only, non-blocking. Failures are logged, not raised.
-        """
-        if self.postmortem is None:
-            # Phase 4: PostMortemMemory not yet implemented
-            return
-        
+    def _get_context(self) -> Dict[str, Any]:
+        """Get current context from ambient memory."""
         try:
-            self.postmortem.record(
-                subtask_description=description,
-                intent=intent,
-                effects=plan.get("effects", []),
-                tools_used=[s.get("tool") for s in plan.get("steps", [])],
-                outcome=outcome,
-                failure_reason=self._extract_failure_reason(execution) if outcome == "failure" else None
-            )
+            return self.ambient.get_context()
         except Exception as e:
-            # Non-blocking - log and continue
-            logging.warning(f"PostMortem write failed: {e}")
-    
-    def _extract_failure_reason(self, execution: Optional[Dict]) -> Optional[str]:
-        """Extract failure reason from execution result."""
-        if not execution:
-            return None
-        errors = execution.get("errors", [])
-        if errors:
-            return "; ".join([e.get("error", "Unknown") for e in errors])
-        return None
-    
-    def _aggregate_results(self, user_input: str, decomposition_applied: bool,
-                           subtask_results: List[SubtaskResult]) -> Dict[str, Any]:
-        """
-        Aggregate subtask results into final response.
-        
-        DETERMINISTIC - no LLM call.
-        """
-        total = len(subtask_results)
-        succeeded = sum(1 for r in subtask_results if r.status in 
-                        ["success", "information", "planning", "system"])
-        failed = sum(1 for r in subtask_results if r.status in 
-                     ["failure", "refused", "error"])
-        skipped = sum(1 for r in subtask_results if r.status == "skipped")
-        
-        if failed == 0 and skipped == 0:
-            overall_status = "success"
-        elif succeeded > 0:
-            overall_status = "partial"
-        else:
-            overall_status = "failure"
-        
-        # For single subtask, return compatible format with existing AgentLoop
-        if total == 1 and not decomposition_applied:
-            result = subtask_results[0]
-            return {
-                "intent": result.intent,
-                "plan": result.plan,
-                "execution": result.execution,
-                "evaluation": result.evaluation,
-                "final_status": result.status,
-                "response": result.reason
-            }
-        
-        # Multi-subtask response
-        return {
-            "overall_status": overall_status,
-            "decomposition_applied": decomposition_applied,
-            "original_goal": user_input,
-            "subtask_count": total,
-            "subtask_results": [
-                {
-                    "subtask_id": r.subtask_id,
-                    "status": r.status,
-                    "reason": r.reason
-                }
-                for r in subtask_results
-            ],
-            "summary": {
-                "succeeded": succeeded,
-                "failed": failed,
-                "skipped": skipped
-            }
-        }
+            logging.debug(f"Failed to get ambient context: {e}")
+            return {"session": self.context.to_dict()}
+
+
+# Backward compatibility alias
+SubtaskOrchestrator = Orchestrator

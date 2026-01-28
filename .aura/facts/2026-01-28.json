@@ -1,0 +1,407 @@
+{
+  "date": "2026-01-28",
+  "schema_version": 1,
+  "count": 23,
+  "facts": [
+    {
+      "fact_id": "c6d662d6-9e75-40dc-9f75-1e3e2978b464",
+      "timestamp": "2026-01-28T07:27:20.118296",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery",
+      "facts": {
+        "battery_percent": 85,
+        "is_plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "is_plugged_in"
+      ],
+      "session_id": "test-session",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "8ae87dbe-3997-4b37-bd7a-242253addf7b",
+      "timestamp": "2026-01-28T07:28:19.107469",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery level",
+      "facts": {
+        "tool": "system.state.get_battery"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "fd2a8fdc-9299-448d-8b65-5eeda858141c",
+      "timestamp": "2026-01-28T07:30:47.907436",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery level",
+      "facts": {
+        "tool": "system.state.get_battery"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "2995294e-d51c-4d26-859c-53326487c8a3",
+      "timestamp": "2026-01-28T07:35:06.334682",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery level",
+      "facts": {
+        "tool": "system.state.get_battery"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "b0c98994-fe05-4d54-b4a1-3b9bf44ccdb5",
+      "timestamp": "2026-01-28T07:35:46.777713",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery level earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "ff5a0c90-fc3c-414b-8b28-06055c0a6684",
+      "timestamp": "2026-01-28T07:45:20.505150",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery level",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "46b23ed2-669a-45ad-8d09-e448b6d37465",
+      "timestamp": "2026-01-28T07:46:01.612445",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery level earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "87312b92-0f8e-4429-8a36-7ae98cec4f8d",
+      "timestamp": "2026-01-28T07:52:58.878157",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery level",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "a1b49d09-cfc7-4d00-98de-561b9b56969f",
+      "timestamp": "2026-01-28T07:53:43.974322",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery level earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "e4ff0693-3675-418f-8102-f9ba32402e93",
+      "timestamp": "2026-01-28T07:55:53.910382",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery level earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "d2165a72-0507-46c1-b169-0d851c5d0db0",
+      "timestamp": "2026-01-28T07:58:34.435086",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "1b8a7e98-25a6-403a-acf4-da4f9f4bac03",
+      "timestamp": "2026-01-28T07:59:20.192494",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "59737ec6-9262-4771-8bea-b578490f97a5",
+      "timestamp": "2026-01-28T08:03:28.408722",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery level",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "5cfee6f2-c6a3-49ac-96a8-e0383e42aa2a",
+      "timestamp": "2026-01-28T08:04:14.456258",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "c39db6ff-3cf7-43f7-b3b1-d5c9dbcc4a49",
+      "timestamp": "2026-01-28T08:07:09.157277",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "b0d344be-6bcb-4240-a52e-4de3855c84d6",
+      "timestamp": "2026-01-28T08:07:53.001996",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "7371641d-4752-4983-b57a-15bba1104f1a",
+      "timestamp": "2026-01-28T08:09:47.818480",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "f984b161-b9ca-48fc-86ab-dcb3572774eb",
+      "timestamp": "2026-01-28T08:11:43.318397",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "6365e672-ef54-40ac-84c7-efad7b5b6272",
+      "timestamp": "2026-01-28T08:14:14.405159",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "2b1a7335-98ae-4fdc-92b8-e6bfbe11d2c9",
+      "timestamp": "2026-01-28T08:15:07.707398",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "05bc6225-3388-42f3-b6c9-4d2453bc0b66",
+      "timestamp": "2026-01-28T08:21:28.474113",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "cd52fcd3-6d0b-402a-ae00-0ac836114805",
+      "timestamp": "2026-01-28T08:22:14.084310",
+      "tool": "memory.get_recent_facts",
+      "query": "what was my battery earlier",
+      "facts": {
+        "recalled_facts": [],
+        "recall_count": 0,
+        "time_range_minutes": 60
+      },
+      "fact_keys": [
+        "recall_count",
+        "recalled_facts",
+        "time_range_minutes"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "c82e4ca4-49b3-4741-a87e-cfe020b12c14",
+      "timestamp": "2026-01-28T08:25:36.074305",
+      "tool": "system.state.get_battery",
+      "query": "what is my battery",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 80,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

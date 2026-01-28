@@ -1,2 +1,4 @@
-"""File operations - read, write, move, copy, delete"""
+"""File system tools.
 
+This package provides atomic file operations with centralized safety.
+"""

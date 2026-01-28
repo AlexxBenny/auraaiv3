@@ -1,2 +1,2 @@
-"""Agent implementations (Intent, Planner, Critic)"""
+"""Agent implementations (Intent, Planner [fallback-only], TDA, Gate)"""
 
