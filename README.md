@@ -1,92 +1,76 @@
 # 🤖 AURA - Agentic Desktop Assistant
 
-A multi-agent AI system for Windows desktop automation with **effect-based planning**, **deterministic execution**, and **self-evolution capabilities**.
+A goal-oriented AI assistant for Windows desktop automation with **semantic goal extraction**, **dependency-aware execution**, and **deterministic tool safety**.
 
 ---
 
 ## 🌟 What Makes AURA Different
 
-### ♻️ Idempotent Effect Execution
-Plans are expressed as **observable effects** (not imperative commands). Before execution:
-- **Preconditions** are validated
-- **Already-satisfied effects** are detected and skipped
-- Re-running the same command won't repeat completed work
+### 🎯 Goal-Oriented Architecture
+User commands are parsed as **semantic goals**, not verb sequences:
 
 ```
-User: "Mute the volume"
-→ Effect: {type: "audio.muted", target: "master"}
-→ Check: Is master already muted? → YES → Skip execution
+User: "open youtube and search nvidia"
+→ QueryClassifier: SINGLE (one goal)
+→ Merged into: ONE action (youtube.com/results?search_query=nvidia)
 ```
 
-### 🔍 Two-Tier Effect Verification
-Execution results are verified in two tiers:
-1. **Tier 1 (Deterministic)**: Fast Python checks (file exists? volume level?)
-2. **Tier 2 (LLM Fallback)**: For custom effects without deterministic verifiers
+### 🔗 Dependency-Aware Multi-Goal Execution
+Dependent actions are automatically sequenced:
 
-No blind trust in tool return values—effects are independently verified.
+```
+User: "create folder nvidia and put a file inside it"
+→ QueryClassifier: MULTI (dependency detected: "inside it")
+→ GoalInterpreter: 2 goals with dependency edge
+→ Execute: folder first → file second
+```
 
-### 🧭 Semantic Tool Discovery (Qdrant)
-Tools are found via **semantic similarity**, not string matching:
-- Tool descriptions are embedded and indexed in Qdrant
-- Planner queries find relevant tools even with novel phrasing
-- No brittle keyword mapping required
+### 🛡️ Domain-Locked Safety
+Tools are constrained by domain to prevent hallucinated execution:
 
-### 🚧 Ontology-Based Plan Validation (Neo4j)
-Before execution, plans are validated against a **constraint graph**:
-- **Blocked tools** based on context (e.g., "don't send emails during DND")
-- **Prerequisite checks** (e.g., "app must be open before clicking")
-- Plans failing eligibility are refused with explanation
-
-### 🔄 Evolution Modes
-Self-evolution with configurable autonomy:
-
-| Mode | Behavior |
-|------|----------|
-| `manual` | Human approves all new tools |
-| `assisted` | System proposes, human decides |
-| `sandboxed` | Auto-test in isolated environment |
-| `autonomous` | Full auto-evolution (high trust) |
+```
+Intent: file_operation
+→ Stage 1: files.* tools only
+→ Stage 2: ONLY files.* fallback (no system.input.mouse!)
+→ No match? → Hard fail (safe abort)
+```
 
 ---
 
-## 🧠 Multi-Agent Architecture
+## 🧠 Architecture
 
-| Agent | Role | Model Type |
-|-------|------|------------|
-| **Intent Agent** | Fast intent classification | Cheap/fast |
-| **Planner Agent** | Effect-based plan generation | Reasoning |
-| **Critic Agent** | Two-tier effect verification | Evaluation |
-| **Task Decomposition Agent** | Complex query → atomic subtasks | Reasoning |
-| **Limitation Agent** | Propose new tools for gaps | Reasoning |
+```
+User Input
+    ↓
+QueryClassifier (single vs multi)
+    ↓
+┌───────────────────┬────────────────────────┐
+│   SINGLE PATH     │      MULTI PATH        │
+├───────────────────┼────────────────────────┤
+│ IntentAgent       │ GoalInterpreter        │
+│ ToolResolver      │ GoalPlanner (per goal) │
+│ Executor          │ GoalOrchestrator       │
+│                   │ PlanGraph → Executor   │
+└───────────────────┴────────────────────────┘
+    ↓
+Result
+```
+
+### Core Agents
+
+| Agent | Role |
+|-------|------|
+| **QueryClassifier** | Route single vs multi-goal queries |
+| **GoalInterpreter** | Extract semantic goals with dependencies |
+| **GoalPlanner** | Transform goal → minimal executable plan |
+| **GoalOrchestrator** | Combine plans into dependency graph |
+| **IntentAgent** | Fast intent classification (single path) |
 
 ### Core Principles
 1. **LLMs decide, Python executes** - LLMs never run code
-2. **Deterministic tools** - Same input → same output
-3. **Schema validation** - All LLM outputs validated
-4. **Model abstraction** - Switch providers via YAML config
-
----
-
-## 🔌 Multi-Provider Model Support
-
-| Provider | Use Case |
-|----------|----------|
-| **Gemini** | Google AI, fast inference |
-| **OpenRouter** | Aggregator, model variety |
-| **Ollama** | Local models, privacy |
-
-```yaml
-# config/models/local.yaml
-intent:
-  provider: gemini
-  model: gemini-2.5-flash
-planner:
-  provider: gemini
-  model: gemini-2.5-flash
-critic:
-  provider: gemini
-  model: gemini-2.5-flash
-```
+2. **Goals, not verbs** - Parse intent semantically
+3. **Deterministic tools** - Same input → same output
+4. **Schema validation** - All LLM outputs validated
 
 ---
 
@@ -94,172 +78,142 @@ critic:
 
 | Category | Examples |
 |----------|----------|
+| `files.*` | Create folder, create file, delete, rename |
 | `system/apps` | Launch, close, focus applications |
 | `system/audio` | Volume control, mute |
 | `system/display` | Screenshot, brightness |
 | `system/input` | Mouse click, keyboard type |
 | `system/power` | Sleep, shutdown, lock |
-| `system/state` | Query running processes |
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.11+
 - Windows 10/11
-- API key (Gemini, OpenRouter, or Ollama running locally)
+- API key (Gemini recommended)
 
 ### Installation
 ```bash
 git clone <repo-url>
 cd AURA
+python -m venv venv
+.\venv\Scripts\activate
 pip install -r requirements.txt
 
 # Set API key
 $env:GEMINI_API_KEY="your_key_here"
 
-# Run
+# Run CLI
 python main.py
+
+# Run Web GUI
+python main_gui.py
 ```
 
 ---
 
-## 🏗️ Architecture
+## 📖 Usage Examples
 
+### Single Goal (Merged Automatically)
 ```
-User Input
-    ↓
-┌─────────────────────────────────────────┐
-│  SubtaskOrchestrator (top-level)        │
-│    ├─ Decomposition Gate                │
-│    └─ Task Decomposition Agent          │
-└─────────────────────────────────────────┘
-    ↓ (per subtask)
-┌─────────────────────────────────────────┐
-│  AgentLoop                              │
-│    ├─ Intent Agent (classification)     │
-│    ├─ Planner Agent (effect planning)   │
-│    ├─ Effect Router (deterministic)     │
-│    ├─ Tool Executor (NO AI)             │
-│    └─ Critic Agent (evaluation)         │
-└─────────────────────────────────────────┘
-    ↓
-Result
+You: "open youtube and search nvidia"
+→ 1 action: Launch Chrome with youtube.com/results?search_query=nvidia
 ```
 
-### Directory Structure
+### Multi Goal (Independent)
+```
+You: "open chrome and open spotify"
+→ 2 parallel actions
+```
+
+### Multi Goal (Dependent)
+```
+You: "create folder nvidia and create a file inside it"
+→ 2 sequential actions (folder first, then file)
+```
+
+### System Control
+```
+You: "mute the volume"
+You: "take a screenshot"
+You: "increase brightness"
+```
+
+---
+
+## 🔌 Model Support
+
+| Provider | Use Case |
+|----------|----------|
+| **Gemini** | Fast inference (recommended) |
+| **Ollama** | Local models, privacy |
+| **OpenRouter** | Model variety |
+
+```yaml
+# config/models/local.yaml
+intent:
+  provider: gemini
+  model: gemini-2.0-flash
+planner:
+  provider: gemini
+  model: gemini-2.0-flash
+```
+
+---
+
+## 📁 Directory Structure
 
 ```
 AURA/
 ├── agents/                    # AI agents
-│   ├── intent_agent.py       # Fast intent classification
-│   ├── planner_agent.py      # Effect-based planning
-│   ├── critic_agent.py       # Execution evaluation
-│   ├── task_decomposition.py # TDA v3
-│   ├── limitation_agent.py   # Skill proposals
-│   └── decomposition_gate.py # Single/multi routing
+│   ├── query_classifier.py   # Single vs multi routing
+│   ├── goal_interpreter.py   # Semantic goal extraction
+│   ├── goal_planner.py       # Goal → plan transformation
+│   ├── goal_orchestrator.py  # Multi-goal coordination
+│   └── intent_agent.py       # Intent classification
 ├── core/
-│   ├── orchestrator.py       # SubtaskOrchestrator (entry point)
-│   ├── agent_loop.py         # Per-subtask execution
-│   ├── assistant.py          # User-facing interface
-│   ├── effects/              # Effect schemas & verification
-│   │   ├── schema.py         # Effect type definitions
-│   │   └── verification.py   # Deterministic verifiers
-│   ├── semantic/             # Semantic search (Qdrant)
-│   │   ├── qdrant_client.py  # Vector store client
-│   │   ├── tool_index.py     # Tool embeddings
-│   │   └── tool_search.py    # Semantic tool matching
-│   └── ontology/             # Constraint checking (Neo4j)
-│       ├── neo4j_client.py   # Graph DB client
-│       └── eligibility.py    # Plan eligibility checks
+│   ├── orchestrator.py       # Main entry point
+│   ├── tool_resolver.py      # Tool selection + safety
+│   └── intent_router.py      # Intent → pipeline routing
 ├── tools/
 │   ├── base.py               # Tool base class
 │   ├── registry.py           # Central tool registry
-│   ├── loader.py             # Dynamic tool loading
-│   └── system/               # System tools by category
+│   ├── files/                # File tools
+│   └── system/               # System tools
 ├── models/
-│   ├── model_manager.py      # Model routing singleton
-│   └── providers/            # LLM provider adapters
-│       ├── gemini.py
-│       ├── openrouter.py
-│       └── ollama.py
-├── memory/
-│   ├── procedural.py         # Tool proposals & skills
-│   └── postmortem.py         # Execution outcomes
-├── execution/
-│   └── executor.py           # Deterministic tool executor
+│   ├── model_manager.py      # Model routing
+│   └── providers/            # LLM adapters
 ├── config/
-│   ├── settings.yaml         # General settings
-│   └── models/               # Per-runtime model configs
-│       ├── local.yaml
-│       ├── hosted.yaml
-│       └── hybrid.yaml
-├── tests/                    # Test suite
-│   ├── test_e2e_*.py         # End-to-end tests
-│   └── test_*_integration.py # Integration tests
+│   ├── runtime.yaml          # Runtime mode
+│   └── models/               # Per-mode model configs
 ├── docs/                     # Documentation
-│   ├── ARCHITECTURE.md       # Detailed architecture
-│   └── *.md                  # Design docs
-├── main.py                   # Entry point
-└── requirements.txt
+├── tests/                    # Test suite
+├── main.py                   # CLI entry point
+└── main_gui.py               # Web GUI entry point
 ```
 
 ---
 
-## 🛡️ Security & Safety
+## 🛡️ Safety
 
 ### Execution Safety
-- **No `exec()` calls** - Tools are pure Python
-- **Schema validation** - All LLM outputs validated before use
-- **Argument validation** - Tool inputs checked against JSON Schema
-- **Risk levels** - Tools declare `low`, `medium`, `high` risk
-- **Side effect tracking** - Tools declare their side effects
-
-### Self-Evolution Safety
-```yaml
-# config/settings.yaml
-evolution:
-  autonomy_mode: manual    # manual | assisted | sandboxed | autonomous
-  max_risk_level: medium
-  require_manual_approval: true
-  forbidden_categories:
-    - system_destruction
-    - network_exploit
-```
+- **No `exec()` calls** - Pure Python tools
+- **Schema validation** - All LLM outputs validated
+- **Domain lock** - Stage 2 fallback restricted by intent
+- **Multi-JSON rejection** - Prevents tool hallucination
 
 ### Tool Contract
-Every tool must:
-1. Inherit from `Tool` base class
-2. Define `name`, `description`, `schema`
-3. Implement `execute(args)` → `{"status": "success", ...}`
-4. Be deterministic (no randomness, no AI)
-
----
-
-## ⚙️ Configuration
-
-### Runtime Modes
-AURA supports multiple runtime modes configured in `config/runtime.yaml`:
-- **local** - All models run locally or via personal API keys
-- **hosted** - Cloud-hosted models (future)
-- **hybrid** - Mixed local/cloud (future)
-
-### Model Configuration
-Edit `config/models/<runtime>.yaml` to customize models per agent role:
-
-```yaml
-intent:
-  provider: ollama
-  model: phi-3-mini
-
-planner:
-  provider: openrouter
-  model: mistralai/mistral-7b-instruct
-
-critic:
-  provider: gemini
-  model: gemini-2.5-flash
+```python
+class MyTool(Tool):
+    @property
+    def name(self) -> str:
+        return "category.tool_name"
+    
+    def execute(self, args: dict) -> dict:
+        # Deterministic Python only
+        return {"status": "success", ...}
 ```
 
 ---
@@ -267,95 +221,12 @@ critic:
 ## 🧪 Testing
 
 ```bash
-# Run full test suite
+# Run all tests
 python -m pytest tests/
 
 # Run specific test
-python -m pytest tests/test_e2e_safety_trace.py -v
-
-# Run integration tests
-python -m pytest tests/test_planner_qdrant_integration.py -v
+python -m pytest tests/test_file_operation.py -v
 ```
-
----
-
-## 📖 Usage Examples
-
-```
-You: "Take a screenshot"
-→ Intent: system_control
-→ Plan: effects=[{type: "screenshot.captured", ...}]
-→ Execute: ScreenshotTool.execute()
-→ Critic: verified ✓
-→ Result: Screenshot saved
-
-You: "Mute the volume and open notepad"
-→ Decomposition Gate: MULTI
-→ TDA: subtask_1="mute volume", subtask_2="open notepad"
-→ Execute each subtask through AgentLoop
-→ Aggregate results
-```
-
-### Special Commands
-- `help` - Show available commands
-- `status` - Show system status
-- `exit` / `quit` - Exit AURA
-
----
-
-## 🔮 Self-Evolution
-
-When AURA encounters an unknown capability:
-1. **Detection** - Planner reports `requires_new_tool: true`
-2. **Proposal** - LimitationAgent proposes tool specification
-3. **Validation** - SkillGate validates proposal
-4. **Storage** - ProceduralMemory stores proposal
-5. **Human Review** - User approves/rejects
-6. **Implementation** - Tool scaffold generated for development
-
-> **Note**: Self-evolution currently requires human approval for new tools.
-
----
-
-## 📝 Development
-
-### Adding New Tools
-
-1. Create tool in `tools/system/<category>/`:
-   ```python
-   from tools.base import Tool
-
-   class MyTool(Tool):
-       @property
-       def name(self) -> str:
-           return "my_tool"
-       
-       @property
-       def description(self) -> str:
-           return "Does something useful"
-       
-       @property
-       def schema(self) -> dict:
-           return {
-               "type": "object",
-               "properties": {
-                   "param": {"type": "string"}
-               },
-               "required": ["param"]
-           }
-       
-       def execute(self, args: dict) -> dict:
-           # Deterministic Python only
-           return {"status": "success", "result": "..."}
-   ```
-
-2. Tool is auto-discovered via `ToolLoader`
-
-### Key Design Principles
-- **Effect-first**: Think in terms of observable state changes
-- **Determinism**: Tools must produce same output for same input
-- **Separation**: LLMs reason, Python executes
-- **Validation**: Schema-first, always validate
 
 ---
 
@@ -363,17 +234,19 @@ When AURA encounters an unknown capability:
 
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Detailed system architecture |
-| [SELF_EVOLUTION_PLAN.md](docs/SELF_EVOLUTION_PLAN.md) | Self-evolution design |
-| [IMPLEMENTATION_ORDER.md](docs/IMPLEMENTATION_ORDER.md) | Build order guide |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture |
+| [CODE_FLOW.md](docs/CODE_FLOW.md) | Execution flow |
+| [QUERY_CLASSIFIER_CONTRACT.md](docs/QUERY_CLASSIFIER_CONTRACT.md) | Routing logic |
+| [GOAL_PLANNER_CONTRACT.md](docs/GOAL_PLANNER_CONTRACT.md) | Planning contract |
+| [GOAL_INTERPRETER_CONTRACT.md](docs/GOAL_INTERPRETER_CONTRACT.md) | Goal extraction |
+| [GOAL_ORCHESTRATOR_CONTRACT.md](docs/GOAL_ORCHESTRATOR_CONTRACT.md) | Multi-goal coordination |
 
 ---
 
 ## ⚠️ Disclaimer
 
 AURA executes actions on your Windows system. While safety measures are in place:
-- Review tool proposals before approval
-- Use in controlled environments for testing
+- Test in controlled environments
 - Monitor system changes
 - Keep backups of important data
 

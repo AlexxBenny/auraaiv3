@@ -1,7 +1,7 @@
 {
   "date": "2026-02-02",
   "schema_version": 1,
-  "count": 13,
+  "count": 19,
   "facts": [
     {
       "fact_id": "95779e5c-6958-4d77-b1f4-86e9e48c7a74",
@@ -194,6 +194,90 @@
       "timestamp": "2026-02-02T21:50:41.451473",
       "tool": "system.apps.launch.shell",
       "query": "open brave",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "d84e532e-81fd-4634-b172-a9b671f17435",
+      "timestamp": "2026-02-02T22:13:23.304874",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "d89f003e-879b-4e26-9633-eaff78f69ea6",
+      "timestamp": "2026-02-02T22:14:04.434667",
+      "tool": "system.apps.launch.shell",
+      "query": "search viswajyothi college",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "53b3a46d-b1d2-490a-b1cd-08b68810525d",
+      "timestamp": "2026-02-02T22:33:59.773664",
+      "tool": "system.apps.launch.shell",
+      "query": "search nvidia",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "f3aeccd7-d548-4045-9bcd-eb8da105f22f",
+      "timestamp": "2026-02-02T22:34:47.510103",
+      "tool": "system.apps.launch.shell",
+      "query": "open steam",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "5d5fc339-d032-4da6-a894-f8f06d00bd00",
+      "timestamp": "2026-02-02T22:35:28.156094",
+      "tool": "system.apps.launch.shell",
+      "query": "open spotify",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "e6e11ef8-0c94-4738-9c23-d0213698dfad",
+      "timestamp": "2026-02-02T22:37:10.650601",
+      "tool": "system.apps.launch.shell",
+      "query": "search viswajyothi college",
       "facts": {
         "tool": "system.apps.launch.shell"
       },

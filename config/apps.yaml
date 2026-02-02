@@ -2,6 +2,18 @@
 # Only apps listed here get special treatment
 # Apps not listed work exactly as before
 
+# Search engine configuration
+# Used when user says "search for X" or "open youtube and search for X"
+search:
+  default_browser: chrome
+  engines:
+    google: "https://www.google.com/search?q={query}"
+    youtube: "https://www.youtube.com/results?search_query={query}"
+    duckduckgo: "https://duckduckgo.com/?q={query}"
+    bing: "https://www.bing.com/search?q={query}"
+    github: "https://github.com/search?q={query}"
+    stackoverflow: "https://stackoverflow.com/search?q={query}"
+
 browsers:
   chrome:
     executable_patterns:

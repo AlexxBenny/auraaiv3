@@ -50,7 +50,10 @@ class BaseLLMProvider(ABC):
         return True
     
     def _parse_response(self, raw_response: str, schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Parse and validate LLM response"""
+        """Parse and validate LLM response.
+        
+        SAFETY: Rejects multi-JSON responses (LLM tried to return multiple tools).
+        """
         try:
             # Try to extract JSON from markdown code blocks
             if "```json" in raw_response:
@@ -58,10 +61,28 @@ class BaseLLMProvider(ABC):
             elif "```" in raw_response:
                 json_str = raw_response.split("```")[1].split("```")[0].strip()
             elif "{" in raw_response and "}" in raw_response:
-                # Extract JSON object
+                # Extract FIRST JSON object only
                 start = raw_response.find("{")
-                end = raw_response.rfind("}") + 1
+                # Find matching closing brace (handle nested objects)
+                depth = 0
+                end = start
+                for i, char in enumerate(raw_response[start:], start):
+                    if char == "{":
+                        depth += 1
+                    elif char == "}":
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
                 json_str = raw_response[start:end]
+                
+                # SAFETY: Check for multi-JSON (trailing content after first object)
+                remaining = raw_response[end:].strip()
+                if remaining and remaining.startswith("{"):
+                    raise ValueError(
+                        "Multi-JSON detected: LLM returned multiple tool objects. "
+                        "This request requires goal-path routing, not single-tool resolution."
+                    )
             else:
                 json_str = raw_response.strip()
             

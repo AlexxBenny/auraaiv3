@@ -1,0 +1,171 @@
+{
+  "date": "2026-02-03",
+  "schema_version": 1,
+  "count": 10,
+  "facts": [
+    {
+      "fact_id": "c5a28f41-c9d7-4d32-93da-96d82149eafe",
+      "timestamp": "2026-02-03T00:07:24.722100",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "e5ea87c3-0286-465e-8c2f-2b77f2a8c1bf",
+      "timestamp": "2026-02-03T00:08:24.687099",
+      "tool": "system.apps.launch.shell",
+      "query": "open steam",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "51f1db2f-e82d-4eb9-90c2-6140b9a56b2e",
+      "timestamp": "2026-02-03T00:08:58.419840",
+      "tool": "system.apps.launch.shell",
+      "query": "open youtube",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "b12fac6e-1251-4a44-a1a1-81bf6c7c762e",
+      "timestamp": "2026-02-03T00:09:44.387055",
+      "tool": "system.apps.launch.shell",
+      "query": "open youtube and search one direction",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "9fe1b033-e925-4da1-90b0-6f3f5b8c7a58",
+      "timestamp": "2026-02-03T00:11:15.028028",
+      "tool": "system.audio.mute",
+      "query": "mute the system",
+      "facts": {
+        "tool": "system.audio.mute",
+        "muted": true
+      },
+      "fact_keys": [
+        "muted",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "5a2a2967-b199-47cf-b53f-772ef381db54",
+      "timestamp": "2026-02-03T00:11:50.849980",
+      "tool": "system.audio.unmute",
+      "query": "unmute the system",
+      "facts": {
+        "tool": "system.audio.unmute",
+        "muted": true
+      },
+      "fact_keys": [
+        "muted",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "d0eaa7cf-f396-48ad-8e1d-28c38657d369",
+      "timestamp": "2026-02-03T00:12:28.297311",
+      "tool": "system.display.set_brightness",
+      "query": "set brightness to low",
+      "facts": {
+        "tool": "system.display.set_brightness",
+        "brightness_level": 50,
+        "display_count": 1,
+        "displays": [
+          "BOE Display Technology 0C29"
+        ]
+      },
+      "fact_keys": [
+        "brightness_level",
+        "display_count",
+        "displays",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "10fb3011-b089-4b72-96cc-d4659eeac285",
+      "timestamp": "2026-02-03T00:13:09.200402",
+      "tool": "files.create_folder",
+      "query": "create a folder named nvidia",
+      "facts": {
+        "status": "success",
+        "path": "D:\\aura\\AURA\\nvidia",
+        "already_existed": false,
+        "created_parents": true
+      },
+      "fact_keys": [
+        "already_existed",
+        "created_parents",
+        "path",
+        "status"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "acbfc8f5-862a-4aa1-924d-637f61f6a210",
+      "timestamp": "2026-02-03T00:13:51.362029",
+      "tool": "files.delete_folder",
+      "query": "delete the folder nvidia",
+      "facts": {
+        "status": "success",
+        "deleted_path": "D:\\aura\\AURA\\nvidia",
+        "deleted_name": "nvidia",
+        "was_recursive": false
+      },
+      "fact_keys": [
+        "deleted_name",
+        "deleted_path",
+        "status",
+        "was_recursive"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "54cd3064-e130-49b6-a3a0-27e5e62f7c1a",
+      "timestamp": "2026-02-03T00:15:34.475404",
+      "tool": "system.display.find_text",
+      "query": "create a folder named nvidia and create an empty text file inside it",
+      "facts": {
+        "tool": "system.display.find_text"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

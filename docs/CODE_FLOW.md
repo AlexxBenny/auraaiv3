@@ -1,89 +1,106 @@
-# AURA Code Flow - main.py vs main_gui.py
+# AURA Code Flow
 
-## Correct Flow (main.py)
+## Main Entry Points
 
-```
-main.py
-    ↓
-    from core.assistant import main
-    ↓
-core/assistant.py::main()
-    ↓
-    Assistant()
-    ↓
-    Assistant.__init__()
-        ↓
-        1. self._register_tools()  ← CRITICAL STEP
-            ↓
-            load_all_tools()       ← Discovers all tools/ folder
-            get_registry()         ← Registers them in ToolRegistry
-            ↓
-            Logs: "Auto-registered X tools from discovery"
-        ↓
-        2. self.orchestrator = Orchestrator()
-            ↓
-            Logs: "Initializing Orchestrator (JARVIS mode)"
-    ↓
-    assistant.start()
-        ↓
-        Main REPL loop: input() → orchestrator.process() → _display_result()
-```
+| Entry | File | Purpose |
+|-------|------|---------|
+| CLI | `main.py` | Terminal interface |
+| GUI | `main_gui.py` | Web interface |
 
-## Broken Flow (main_gui.py - BEFORE FIX)
+---
+
+## Complete Flow (Current Architecture)
 
 ```
-main_gui.py
+User Input: "create folder nvidia and file inside it"
     ↓
-    gui/web/server.py::AuraWebServer
+┌─────────────────────────────────────────────────────────┐
+│ STEP 1: QueryClassifier.classify()                       │
+│   - Syntactic heuristics: "inside it" = dependency       │
+│   - Result: "multi"                                       │
+└─────────────────────────────────────────────────────────┘
     ↓
-    gui/adapter.py::GUIAdapter.process()
-        ↓
-        Orchestrator()  ← MISSING: load_all_tools() not called!
-        ↓
-        Logs: "No tools registered in system"
+┌─────────────────────────────────────────────────────────┐
+│ STEP 2: GoalInterpreter.interpret()                      │
+│   - Extract semantic goals                                │
+│   - Result: MetaGoal(dependent_multi, 2 goals)           │
+│     Goal 0: file_operation, folder, "nvidia"             │
+│     Goal 1: file_operation, file, "nvidia/test.txt"      │
+│     Dependencies: [(1, [0])]                              │
+└─────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────┐
+│ STEP 3: GoalOrchestrator.orchestrate()                   │
+│   - For each goal: GoalPlanner.plan()                    │
+│   - Combine: PlanGraph with dependency edges             │
+└─────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────┐
+│ STEP 4: Execute PlanGraph                                │
+│   - Respect dependency order                              │
+│   - Execute: folder first → file second                  │
+└─────────────────────────────────────────────────────────┘
+    ↓
+Result
 ```
 
-## Fixed Flow (main_gui.py - AFTER FIX)
+---
+
+## Single Path Flow (Simple Commands)
 
 ```
-main_gui.py
+User Input: "mute the volume"
     ↓
-    gui/web/server.py::AuraWebServer.run()
-        ↓
-        1. Print "Initializing AURA backend..."
-        ↓
-        2. get_gui_adapter().orchestrator  ← EAGER INIT
-            ↓
-            load_all_tools()  ← Loads 59 tools
-            Orchestrator()    ← Creates orchestrator
-        ↓
-        3. self.backend_ready = True
-        ↓
-        4. Print banner
-        ↓
-        5. webbrowser.open()  ← Browser opens AFTER init
-        ↓
-        6. web.run_app()
-            ↓
-            On WebSocket connect:
-                Send {type: "ready"}  ← Tells frontend to enable input
+QueryClassifier: "single"
+    ↓
+IntentAgent.classify() → system_control
+    ↓
+IntentRouter → _handle_action()
+    ↓
+ToolResolver.resolve() → system.audio.set_mute
+    ↓
+ToolExecutor.execute()
+    ↓
+Result
 ```
 
-## Key Insight
+---
 
-The `Orchestrator` class does NOT load tools itself. It assumes tools are already registered via `ToolRegistry`. The `Assistant` class handles this initialization, but `GUIAdapter` bypassed it.
+## Multi Path Flow (Independent Goals)
 
-## Fix Required
+```
+User Input: "open chrome and open spotify"
+    ↓
+QueryClassifier: "multi" (independent pattern)
+    ↓
+GoalInterpreter → independent_multi
+    ↓
+GoalOrchestrator → parallel execution
+    ↓
+Both apps launch
+```
 
-In `gui/adapter.py`, the `orchestrator` property must call `load_all_tools()` before creating `Orchestrator`:
+---
 
-```python
-from tools.loader import load_all_tools
+## Key Files
 
-@property
-def orchestrator(self) -> Orchestrator:
-    if self._orchestrator is None:
-        load_all_tools()  # ← ADD THIS
-        self._orchestrator = Orchestrator()
-    return self._orchestrator
+| File | Responsibility |
+|------|----------------|
+| `core/orchestrator.py` | Main routing logic |
+| `agents/query_classifier.py` | Single vs multi detection |
+| `agents/goal_interpreter.py` | Goal extraction |
+| `agents/goal_planner.py` | Goal → Plan transformation |
+| `agents/goal_orchestrator.py` | Multi-goal coordination |
+| `core/tool_resolver.py` | Tool selection + safety |
+
+---
+
+## Safety Mechanisms
+
+```
+Stage 1 ToolResolver: Preferred domains
+    ↓ (if no match)
+Stage 2 ToolResolver: Domain-locked fallback
+    ↓ (if still no match)
+Hard fail (no hallucination)
 ```

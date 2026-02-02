@@ -49,7 +49,7 @@ INTENT_TOOL_DOMAINS = {
     
     # Browser control Phase 0: alias to app launch for browser names
     # Phase 1+ will add browsers.* domain for real automation
-    "browser_control": ["system.apps.launch", "browsers"],
+    "browser_control": ["system.apps.launch"],
     
     "office_operation": ["office"],
     
@@ -86,6 +86,52 @@ INTENT_DISALLOWED_DOMAINS = {
     # Screen operations should not fall back to input
     "screen_capture": ["system.input"],
     "screen_perception": ["system.input"],
+}
+
+# Intent to ALLOWED tool domains for Stage 2 (WHITELIST - hard constraint)
+# SAFETY INVARIANT: Stage 2 can ONLY select from these domains.
+# If no match → hard-fail, do NOT hallucinate a random tool.
+INTENT_STAGE2_ALLOWED_DOMAINS = {
+    # File operations can ONLY fallback to files.*
+    "file_operation": ["files"],
+    
+    # Browser control can ONLY use app launch (Phase 0)
+    "browser_control": ["system.apps.launch"],
+    
+    # Application launch stays in apps domain
+    "application_launch": ["system.apps.launch"],
+    "application_control": ["system.apps"],
+    
+    # System control stays in its domains
+    "system_control": ["system.audio", "system.display", "system.power", "system.desktop", "system.network"],
+    
+    # Screen operations stay in display
+    "screen_capture": ["system.display"],
+    "screen_perception": ["system.display"],
+    
+    # Clipboard stays in clipboard
+    "clipboard_operation": ["system.clipboard"],
+    
+    # Input control stays in input
+    "input_control": ["system.input"],
+    
+    # Window management stays in window/desktop
+    "window_management": ["system.window", "system.virtual_desktop"],
+    
+    # System query stays in state
+    "system_query": ["system.state"],
+    
+    # Memory recall stays in memory
+    "memory_recall": ["memory"],
+    
+    # Office operations stay in office
+    "office_operation": ["office"],
+    
+    # Information query should never have Stage 2 tools
+    "information_query": [],
+    
+    # Unknown - allow all (but will still be filtered by disallowed)
+    "unknown": None,  # None means no whitelist restriction
 }
 
 # Resolution thresholds
@@ -172,7 +218,8 @@ class ToolResolver:
         else:
             logging.info(f"No preferred domains for intent '{intent}', skipping to Stage 2")
         
-        # ===== STAGE 2: Global Fallback =====
+        # ===== STAGE 2: Domain-Locked Fallback =====
+        # SAFETY: Stage 2 is domain-locked, not a free-for-all
         all_tools = self.registry.get_tools_for_llm()
         
         if not all_tools:
@@ -185,8 +232,49 @@ class ToolResolver:
                 "reason": "No tools registered in system"
             }
         
-        # SAFETY: Filter out disallowed domains for this intent
-        # This prevents dangerous fallbacks (e.g., browser_control → mouse.move)
+        # STEP 1: Apply WHITELIST (allowed domains for this intent)
+        # This is the PRIMARY safety filter
+        allowed = INTENT_STAGE2_ALLOWED_DOMAINS.get(intent)
+        
+        if allowed is not None:  # None means no whitelist restriction
+            if len(allowed) == 0:
+                # Empty list = no Stage 2 allowed for this intent
+                logging.warning(f"Stage 2 blocked: intent '{intent}' has no allowed fallback domains")
+                return {
+                    "tool": None,
+                    "params": {},
+                    "confidence": 0.0,
+                    "domain_match": False,
+                    "stage": 2,
+                    "status": "stage2_blocked",
+                    "reason": f"Intent '{intent}' does not support fallback resolution"
+                }
+            
+            # Filter to only allowed domains
+            original_count = len(all_tools)
+            all_tools = [
+                t for t in all_tools
+                if any(t["name"].startswith(d) for d in allowed)
+            ]
+            filtered_count = original_count - len(all_tools)
+            if filtered_count > 0:
+                logging.info(f"Stage 2: restricted to {len(all_tools)} tools in allowed domains for intent '{intent}'")
+            
+            if not all_tools:
+                # HARD-FAIL: No tools in allowed domains
+                logging.warning(f"Stage 2 hard-fail: no tools in allowed domains {allowed} for intent '{intent}'")
+                return {
+                    "tool": None,
+                    "params": {},
+                    "confidence": 0.0,
+                    "domain_match": False,
+                    "stage": 2,
+                    "status": "capability_missing",
+                    "reason": f"No tools available in allowed domains {allowed} for intent '{intent}'"
+                }
+        
+        # STEP 2: Apply BLACKLIST (disallowed domains)
+        # Secondary safety filter
         disallowed = INTENT_DISALLOWED_DOMAINS.get(intent, [])
         if disallowed:
             original_count = len(all_tools)
@@ -199,7 +287,7 @@ class ToolResolver:
                 logging.info(f"Stage 2: filtered {filtered_count} disallowed tools for intent '{intent}'")
             
             if not all_tools:
-                logging.warning(f"Stage 2 aborted: all tools disallowed for intent '{intent}'")
+                logging.warning(f"Stage 2 aborted: all tools filtered for intent '{intent}'")
                 return {
                     "tool": None,
                     "params": {},

@@ -14,9 +14,15 @@ Flow:
 import logging
 from typing import Dict, Any
 
-from agents.decomposition_gate import DecompositionGate
+# Core agents
+from agents.query_classifier import QueryClassifier
 from agents.intent_agent import IntentAgent
 from agents.task_decomposition import TaskDecompositionAgent
+
+# Goal-oriented architecture (Phase 1)
+from agents.goal_interpreter import GoalInterpreter
+from agents.goal_orchestrator import GoalOrchestrator
+
 from core.intent_router import IntentRouter
 from core.tool_resolver import ToolResolver
 from core.pipelines import handle_information, handle_action, handle_multi, handle_fallback
@@ -46,9 +52,13 @@ class Orchestrator:
         logging.info("Initializing Orchestrator (JARVIS mode)")
         
         # Core agents
-        self.gate = DecompositionGate()
+        self.classifier = QueryClassifier()  # Demoted from DecompositionGate
         self.intent_agent = IntentAgent()
         self.tda = TaskDecompositionAgent()
+        
+        # Goal-oriented architecture (Phase 1)
+        self.goal_interpreter = GoalInterpreter()
+        self.goal_orchestrator = GoalOrchestrator()
         
         # Execution components
         self.executor = ToolExecutor()
@@ -134,18 +144,18 @@ class Orchestrator:
         # Get current context from ambient memory
         context = self._get_context()
         
-        # STEP 1: Semantic segmentation with action extraction
-        gate_result = self.gate.classify_with_actions(user_input)
-        classification = gate_result.get("classification", "single")
-        logging.info(f"Gate classification: {classification}")
+        # STEP 1: Semantic classification (single vs multi-goal)
+        classification = self.classifier.classify(user_input)
+        logging.info(f"QueryClassifier: {classification}")
         progress.emit("Analyzing your request...")
         
         if classification == "single":
+            # Single path: UNCHANGED from before
             result = self._process_single(user_input, context, progress)
         else:
-            # Pass pre-extracted actions to avoid redundant decomposition
-            progress.emit("Breaking down multi-step request...")
-            result = self._process_multi(user_input, context, gate_result, progress)
+            # Multi path: NEW goal-oriented architecture
+            progress.emit("Understanding your goals...")
+            result = self._process_goal(user_input, context, progress)
         
         # Update session
         self.context.complete_task(result)
@@ -180,59 +190,141 @@ class Orchestrator:
         
         return result
     
-    def _process_multi(self, user_input: str, context: Dict[str, Any],
-                        gate_result: Dict[str, Any] = None,
-                        progress: ProgressEmitter = NULL_EMITTER) -> Dict[str, Any]:
-        """Multi-action path with dependency-aware execution.
+    def _process_goal(self, user_input: str, context: Dict[str, Any],
+                      progress: ProgressEmitter = NULL_EMITTER) -> Dict[str, Any]:
+        """Goal-oriented path for multi-goal queries.
         
-        Flow: Gate actions → intent resolution per action → dependency execution
+        NEW ARCHITECTURE (Phase 1):
+        1. GoalInterpreter → MetaGoal (semantic goal extraction)
+        2. GoalOrchestrator → PlanGraph (per-goal planning + combination)
+        3. Execute PlanGraph actions
         
-        Args:
-            user_input: Original user input
-            context: System context
-            gate_result: Output from gate.classify_with_actions() (optional)
-            progress: Optional ProgressEmitter for GUI streaming
+        This is where "open youtube and search nvidia" becomes ONE action.
         """
-        # Use pre-extracted actions from gate (avoids redundant TDA call)
-        gate_actions = gate_result.get("actions", []) if gate_result else []
+        try:
+            # STEP 1: Interpret goals semantically
+            meta_goal = self.goal_interpreter.interpret(user_input, context)
+            logging.info(f"GoalInterpreter: {meta_goal.meta_type} ({len(meta_goal.goals)} goal(s))")
+            
+            # If interpreter says it's actually single, and it's a browser_search,
+            # we can handle it optimally
+            if meta_goal.meta_type == "single":
+                progress.emit("Optimizing single goal...")
+            else:
+                progress.emit(f"Planning {len(meta_goal.goals)} goals...")
+            
+            # STEP 2: Orchestrate planning
+            orch_result = self.goal_orchestrator.orchestrate(meta_goal, context)
+            
+            if orch_result.status == "blocked":
+                logging.warning(f"Goal orchestration blocked: {orch_result.reason}")
+                # Fall back to legacy multi path
+                return self._process_multi_legacy(user_input, context, progress)
+            
+            if orch_result.status == "no_capability":
+                logging.info(f"Goal type not supported in Phase 1: {orch_result.reason}")
+                # Fall back to legacy multi path
+                return self._process_multi_legacy(user_input, context, progress)
+            
+            if orch_result.plan_graph is None:
+                logging.warning("No plan graph produced")
+                return self._process_multi_legacy(user_input, context, progress)
+            
+            # STEP 3: Execute plan graph
+            plan_graph = orch_result.plan_graph
+            logging.info(f"Executing plan with {plan_graph.total_actions} action(s)")
+            progress.emit(f"Executing {plan_graph.total_actions} action(s)...")
+            
+            results = []
+            success_count = 0
+            
+            for action_id in plan_graph.execution_order:
+                action = plan_graph.nodes[action_id]
+                
+                try:
+                    # Execute the action
+                    tool_result = self.executor.execute_tool(action.tool, action.args)
+                    
+                    if tool_result.get("success", False):
+                        success_count += 1
+                        results.append({
+                            "action_id": action_id,
+                            "status": "success",
+                            "tool": action.tool,
+                            "result": tool_result
+                        })
+                    else:
+                        results.append({
+                            "action_id": action_id,
+                            "status": "failed",
+                            "tool": action.tool,
+                            "error": tool_result.get("error", "Unknown error")
+                        })
+                        
+                except Exception as e:
+                    logging.error(f"Action {action_id} failed: {e}")
+                    results.append({
+                        "action_id": action_id,
+                        "status": "error",
+                        "error": str(e)
+                    })
+            
+            # Build response
+            if success_count == plan_graph.total_actions:
+                status = "success"
+                response = f"Completed all {success_count} action(s)"
+            elif success_count > 0:
+                status = "partial"
+                response = f"Completed {success_count} of {plan_graph.total_actions} action(s)"
+            else:
+                status = "failed"
+                response = "All actions failed"
+            
+            # Report partial failures
+            if orch_result.failed_goals:
+                failed_count = len(orch_result.failed_goals)
+                response += f" ({failed_count} goal(s) could not be planned)"
+            
+            return {
+                "status": status,
+                "type": "goal_execution",
+                "response": response,
+                "results": results,
+                "mode": "goal",
+                "meta_type": meta_goal.meta_type,
+                "total_goals": len(meta_goal.goals),
+                "total_actions": plan_graph.total_actions
+            }
+            
+        except Exception as e:
+            logging.error(f"Goal processing failed: {e}", exc_info=True)
+            # Fall back to legacy
+            return self._process_multi_legacy(user_input, context, progress)
+    
+    def _process_multi_legacy(self, user_input: str, context: Dict[str, Any],
+                               progress: ProgressEmitter = NULL_EMITTER) -> Dict[str, Any]:
+        """Legacy multi-action path (fallback when goal path fails).
         
-        if not gate_actions:
-            # Fallback to TDA if gate didn't extract actions
-            logging.warning("Gate provided no actions, falling back to TDA")
-            decomposition = self.tda.decompose(user_input)
-            actions = decomposition.get("subtasks", [])
-            formatted_actions = []
-            for i, subtask in enumerate(actions):
-                formatted_actions.append({
-                    "id": f"a{i+1}",
-                    "description": subtask.get("description", ""),
-                    "depends_on": subtask.get("dependencies", [])
-                })
-        else:
-            # Convert gate actions to multi-pipeline format
-            formatted_actions = []
-            for i, action in enumerate(gate_actions):
-                action_id = f"a{i+1}"
-                depends_on = []
-                
-                # Convert boolean depends_on_previous to actual dependency list
-                if action.get("depends_on_previous", False) and i > 0:
-                    depends_on = [f"a{i}"]  # Depends on previous action
-                
-                formatted_actions.append({
-                    "id": action_id,
-                    "description": action.get("description", ""),
-                    "depends_on": depends_on
-                })
+        This is the OLD path that did verb-counting decomposition.
+        Kept for fallback safety.
+        """
+        logging.info("Using legacy multi path")
+        progress.emit("Using legacy decomposition...")
+        
+        # Use TDA for decomposition
+        decomposition = self.tda.decompose(user_input)
+        actions = decomposition.get("subtasks", [])
+        formatted_actions = []
+        for i, subtask in enumerate(actions):
+            formatted_actions.append({
+                "id": f"a{i+1}",
+                "description": subtask.get("description", ""),
+                "depends_on": subtask.get("dependencies", [])
+            })
         
         if not formatted_actions:
-            # Fallback to single if decomposition fails
-            logging.warning("Multi decomposition failed, falling back to single")
-            return self._process_single(user_input, context)
+            return self._process_single(user_input, context, progress)
         
-        logging.info(f"Executing {len(formatted_actions)} actions with dependencies")
-        
-        # STEP 3: Execute with dependency awareness
         result = handle_multi(
             actions=formatted_actions,
             intent_agent=self.intent_agent,
@@ -241,8 +333,11 @@ class Orchestrator:
             context=context
         )
         
-        result["mode"] = "multi"
+        result["mode"] = "multi_legacy"
         return result
+    
+    # NOTE: Old _process_multi removed - replaced by _process_goal + _process_multi_legacy
+
     
     def _handle_info(self, user_input: str, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """Handle information queries."""
