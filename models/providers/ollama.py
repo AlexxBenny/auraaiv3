@@ -8,6 +8,7 @@ import requests
 import logging
 from typing import Dict, Any, Optional
 from .base import BaseLLMProvider
+from ..exceptions import ProviderUnavailableError
 
 
 class OllamaProvider(BaseLLMProvider):
@@ -70,8 +71,23 @@ class OllamaProvider(BaseLLMProvider):
             return self._parse_response(raw_text, schema)
             
         except requests.exceptions.ConnectionError:
-            raise RuntimeError(f"Cannot connect to Ollama at {self.base_url}. Is Ollama running?")
+            raise ProviderUnavailableError(
+                provider=f"ollama:{self.model}",
+                message=f"Cannot connect to Ollama at {self.base_url}. Is Ollama running?"
+            )
+        except requests.exceptions.Timeout:
+            raise ProviderUnavailableError(
+                provider=f"ollama:{self.model}",
+                message=f"Ollama request timed out after 120s"
+            )
         except requests.exceptions.HTTPError as e:
+            # 5xx errors are infrastructure failures
+            if hasattr(e, 'response') and e.response and e.response.status_code >= 500:
+                raise ProviderUnavailableError(
+                    provider=f"ollama:{self.model}",
+                    message=f"Ollama service error: {e}"
+                )
+            # 4xx errors are client errors - propagate as-is
             logging.error(f"Ollama API error: {e}")
             if hasattr(e, 'response') and e.response:
                 logging.error(f"Response: {e.response.text}")

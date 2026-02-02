@@ -4,6 +4,7 @@ import requests
 import logging
 from typing import Dict, Any, Optional
 from .base import BaseLLMProvider
+from ..exceptions import ProviderUnavailableError
 
 
 class OpenRouterProvider(BaseLLMProvider):
@@ -15,7 +16,10 @@ class OpenRouterProvider(BaseLLMProvider):
         self.api_url = "https://openrouter.ai/api/v1/chat/completions"
         
         if not self.api_key:
-            raise ValueError("OpenRouter API key is required")
+            raise ProviderUnavailableError(
+                provider="openrouter",
+                message="OpenRouter API key is required. Set OPENROUTER_API_KEY in .env"
+            )
     
     def generate(self, prompt: str, schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate response using OpenRouter API"""
@@ -65,7 +69,24 @@ class OpenRouterProvider(BaseLLMProvider):
             # Parse and validate
             return self._parse_response(raw_text, schema)
             
+        except requests.exceptions.ConnectionError as e:
+            raise ProviderUnavailableError(
+                provider=f"openrouter:{self.model}",
+                message=f"Cannot connect to OpenRouter API: {e}"
+            )
+        except requests.exceptions.Timeout as e:
+            raise ProviderUnavailableError(
+                provider=f"openrouter:{self.model}",
+                message=f"OpenRouter API request timed out: {e}"
+            )
         except requests.exceptions.HTTPError as e:
+            # 5xx errors are infrastructure failures
+            if hasattr(e, 'response') and e.response and e.response.status_code >= 500:
+                raise ProviderUnavailableError(
+                    provider=f"openrouter:{self.model}",
+                    message=f"OpenRouter service error: {e}"
+                )
+            # 4xx errors - propagate as-is
             logging.error(f"OpenRouter API error: {e}")
             if hasattr(e, 'response') and e.response:
                 logging.error(f"Response: {e.response.text}")

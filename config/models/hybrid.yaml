@@ -1,6 +1,53 @@
 # Hybrid runtime model configuration
-# Local primary, hosted fallback
-# To be implemented later
+# Local-first, cloud ONLY on infrastructure failure
+#
+# MODE CONTRACT:
+# - Primary: Local inference (Ollama)
+# - Fallback: Cloud (Gemini) - ONLY on ProviderUnavailableError
+# - Never "cloud when local output is bad"
+# - AURA is deterministic automation, not adaptive AI
 
-{}
+intent:
+  primary:
+    provider: ollama
+    model: phi3:mini
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.0-flash-lite
 
+planner:
+  primary:
+    provider: ollama
+    model: mistral:7b-instruct
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash
+
+critic:
+  primary:
+    provider: ollama
+    model: llama3:8b
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash
+
+gate:
+  primary:
+    provider: ollama
+    model: phi3:mini
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.0-flash-lite
+
+tda:
+  primary:
+    provider: ollama
+    model: mistral:7b-instruct
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash

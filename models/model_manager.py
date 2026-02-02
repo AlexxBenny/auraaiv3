@@ -18,6 +18,7 @@ from .providers.base import BaseLLMProvider
 from .providers.gemini import GeminiProvider
 from .providers.openrouter import OpenRouterProvider
 from .providers.ollama import OllamaProvider
+from .providers.hybrid import HybridProvider
 
 
 class ModelManager:
@@ -82,6 +83,43 @@ class ModelManager:
                 f"Missing required roles in {self.config_path}: {', '.join(missing_roles)}\n"
                 f"Required roles: {', '.join(required_roles)}"
             )
+        
+        # Validate hybrid config structure
+        if self.runtime_mode == "hybrid":
+            self._validate_hybrid_config()
+        else:
+            # Ensure no hybrid configs in non-hybrid modes
+            for role, role_config in self.config.items():
+                if isinstance(role_config, dict) and "primary" in role_config:
+                    raise ValueError(
+                        f"Hybrid config (primary/fallback) found in '{self.runtime_mode}' mode for role '{role}'.\n"
+                        f"HybridProvider may only exist in runtime.mode == 'hybrid'."
+                    )
+    
+    def _validate_hybrid_config(self):
+        """Validate hybrid mode configuration structure.
+        
+        INVARIANT: Every role with primary/fallback must have complete configs.
+        """
+        for role, role_config in self.config.items():
+            if not isinstance(role_config, dict):
+                continue
+            
+            if "primary" in role_config:
+                # Validate primary
+                primary = role_config.get("primary", {})
+                if not primary.get("provider"):
+                    raise ValueError(f"Hybrid role '{role}' missing primary.provider")
+                if not primary.get("model"):
+                    raise ValueError(f"Hybrid role '{role}' missing primary.model")
+                
+                # Validate fallback if present
+                if "fallback" in role_config:
+                    fallback = role_config.get("fallback", {})
+                    if not fallback.get("provider"):
+                        raise ValueError(f"Hybrid role '{role}' has fallback but missing fallback.provider")
+                    if not fallback.get("model"):
+                        raise ValueError(f"Hybrid role '{role}' has fallback but missing fallback.model")
     
     def _get_provider(self, provider_name: str, config: Dict[str, Any]) -> BaseLLMProvider:
         """Get or create a provider instance"""
@@ -110,33 +148,63 @@ class ModelManager:
         self._providers[cache_key] = provider
         return provider
     
+    def _get_provider_for_role(self, role: str, role_config: Dict[str, Any]) -> BaseLLMProvider:
+        """Get provider for a role, handling hybrid mode.
+        
+        For hybrid mode with primary/fallback, returns HybridProvider wrapper.
+        For local/hosted mode, returns direct provider.
+        """
+        # Check for hybrid config structure
+        if "primary" in role_config and self.runtime_mode == "hybrid":
+            primary_config = role_config["primary"]
+            fallback_config = role_config.get("fallback")
+            
+            primary_provider = self._get_provider(
+                primary_config.get("provider"),
+                primary_config
+            )
+            
+            if fallback_config:
+                fallback_provider = self._get_provider(
+                    fallback_config.get("provider"),
+                    fallback_config
+                )
+                return HybridProvider(
+                    primary=primary_provider,
+                    fallback=fallback_provider,
+                    role=role
+                )
+            else:
+                # No fallback configured, just use primary
+                return primary_provider
+        
+        # Standard config (local or hosted mode)
+        provider_name = role_config.get("provider", "ollama")
+        return self._get_provider(provider_name, role_config)
+    
     def get_intent_model(self) -> BaseLLMProvider:
         """Get model for intent classification (cheap, fast)"""
         config = self.config.get("intent", {})
-        provider_name = config.get("provider", "ollama")
-        return self._get_provider(provider_name, config)
+        return self._get_provider_for_role("intent", config)
     
     def get_planner_model(self) -> BaseLLMProvider:
         """Get model for planning (reasoning, task decomposition)"""
         config = self.config.get("planner", {})
-        provider_name = config.get("provider", "openrouter")
-        return self._get_provider(provider_name, config)
+        return self._get_provider_for_role("planner", config)
     
     def get_critic_model(self) -> BaseLLMProvider:
         """Get model for criticism/evaluation (post-execution analysis)"""
         config = self.config.get("critic", {})
-        provider_name = config.get("provider", "ollama")
-        return self._get_provider(provider_name, config)
+        return self._get_provider_for_role("critic", config)
     
     def get_custom_model(self, role: str) -> BaseLLMProvider:
         """Get a custom model by role name"""
         config = self.config.get(role, {})
         if not config:
             raise ValueError(f"No configuration found for role: {role}")
-        provider_name = config.get("provider")
-        if not provider_name:
-            raise ValueError(f"Provider not specified for role: {role}")
-        return self._get_provider(provider_name, config)
+        return self._get_provider_for_role(role, config)
+    
+
 
 
 # Global instance

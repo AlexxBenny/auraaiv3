@@ -1,7 +1,7 @@
 """Tool: system.apps.launch.shell
 
 OS-native shell launch for GUI applications.
-Uses os.startfile() which delegates resolution to Windows Shell.
+Uses multi-strategy resolution via AppResolver, then launches appropriately.
 
 Category: system
 Risk Level: medium
@@ -17,12 +17,15 @@ WHEN NOT TO USE:
 - When explicit executable path is provided
 """
 
+import os
 import time
+import subprocess
+import logging
 from typing import Dict, Any
 from tools.base import Tool
 from tools.system.apps.utils import find_windows
 from tools.system.apps.app_handle import AppHandle, HandleRegistry
-from tools.system.apps.resolver import execute_shell_launch
+from tools.system.apps.app_resolver import get_app_resolver, LaunchTarget, ResolutionMethod
 
 
 class LaunchAppShell(Tool):
@@ -84,7 +87,7 @@ class LaunchAppShell(Tool):
         }
     
     def execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute shell launch using os.startfile()"""
+        """Execute app launch using multi-strategy resolution."""
         if not self.validate_args(args):
             return {"status": "error", "error": "Invalid arguments"}
             
@@ -92,28 +95,93 @@ class LaunchAppShell(Tool):
         wait = args.get("wait_for_window", True)
         timeout_sec = args.get("timeout_ms", 10000) / 1000.0
         
-        # Execute via os.startfile
-        success, error = execute_shell_launch(app_name)
+        # Resolve via multi-strategy pipeline
+        resolver = get_app_resolver()
+        target = resolver.resolve(app_name)
+        
+        logging.info(f"Resolved '{app_name}' via {target.resolution_method.value} -> {target.value}")
+        
+        # Execute based on target type
+        success, error = self._execute_target(target)
         if not success:
             return {
                 "status": "error",
                 "error": error,
                 "error_type": "environment",
-                "launch_method": "shell"
+                "launch_method": target.resolution_method.value,
+                "resolution_details": target.details
             }
         
         # Wait for window if requested
         if wait:
-            return self._wait_for_window(app_name, timeout_sec)
+            result = self._wait_for_window(app_name, timeout_sec)
+            result["resolution_method"] = target.resolution_method.value
+            return result
         else:
-            handle = AppHandle.create(app_name, f"shell:{app_name}")
+            handle = AppHandle.create(app_name, f"{target.resolution_method.value}:{target.value}")
             HandleRegistry.register(handle)
             return {
                 "status": "success",
-                "launch_method": "shell",
+                "launch_method": target.resolution_method.value,
+                "resolution_target": target.value,
                 "app_handle": handle.to_dict(),
-                "note": "Launched via OS shell, did not wait for window"
+                "note": f"Launched via {target.resolution_method.value}, did not wait for window"
             }
+    
+    def _execute_target(self, target: LaunchTarget) -> tuple[bool, str | None]:
+        """Execute the resolved launch target.
+        
+        Returns:
+            (success, error_message)
+        """
+        try:
+            if target.target_type == "protocol":
+                # Launch via protocol URI (e.g., spotify:)
+                os.startfile(target.value)
+                logging.info(f"Launched protocol: {target.value}")
+                return True, None
+                
+            elif target.target_type == "executable":
+                # Launch executable directly
+                subprocess.Popen(
+                    [target.value],
+                    shell=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                logging.info(f"Launched executable: {target.value}")
+                return True, None
+                
+            elif target.target_type == "shell":
+                # Fallback to os.startfile with app name
+                os.startfile(target.value)
+                logging.info(f"Launched via shell: {target.value}")
+                return True, None
+                
+            else:
+                return False, f"Unknown target type: {target.target_type}"
+                
+        except FileNotFoundError:
+            error = (
+                f"No valid launch method found for '{target.value}'.\n"
+                f"Tried: protocol, App Paths registry, Start Menu, common install paths.\n"
+                f"Resolution method: {target.resolution_method.value}"
+            )
+            logging.warning(error)
+            return False, error
+            
+        except OSError as e:
+            if "Access is denied" in str(e):
+                error = f"Permission denied launching '{target.value}'"
+            else:
+                error = f"OS error launching '{target.value}': {e}"
+            logging.warning(error)
+            return False, error
+            
+        except Exception as e:
+            error = f"Launch failed for '{target.value}': {e}"
+            logging.error(error)
+            return False, error
     
     def _wait_for_window(self, app_name: str, timeout_sec: float) -> Dict[str, Any]:
         """Wait for window after shell launch"""

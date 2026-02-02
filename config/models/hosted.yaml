@@ -1,5 +1,24 @@
 # Hosted runtime model configuration
-# To be implemented later
+# Pure cloud-based execution - no local inference
 
-{}
+intent:
+  provider: gemini
+  model: gemini-2.0-flash-lite
 
+planner:
+  provider: gemini
+  model: gemini-2.5-flash
+
+critic:
+  provider: gemini
+  model: gemini-2.5-flash
+
+# Gate for decomposition decisions (cheap, fast)
+gate:
+  provider: gemini
+  model: gemini-2.0-flash-lite
+
+# Task Decomposition Agent
+tda:
+  provider: gemini
+  model: gemini-2.5-flash

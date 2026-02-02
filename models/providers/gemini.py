@@ -4,6 +4,7 @@ import requests
 import logging
 from typing import Dict, Any, Optional
 from .base import BaseLLMProvider
+from ..exceptions import ProviderUnavailableError
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -15,7 +16,10 @@ class GeminiProvider(BaseLLMProvider):
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         
         if not self.api_key:
-            raise ValueError("Gemini API key is required")
+            raise ProviderUnavailableError(
+                provider="gemini",
+                message="Gemini API key is required. Set GEMINI_API_KEY in .env"
+            )
     
     def generate(self, prompt: str, schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Generate response using Gemini API"""
@@ -60,7 +64,24 @@ class GeminiProvider(BaseLLMProvider):
             # Parse and validate
             return self._parse_response(raw_text, schema)
             
+        except requests.exceptions.ConnectionError as e:
+            raise ProviderUnavailableError(
+                provider=f"gemini:{self.model}",
+                message=f"Cannot connect to Gemini API: {e}"
+            )
+        except requests.exceptions.Timeout as e:
+            raise ProviderUnavailableError(
+                provider=f"gemini:{self.model}",
+                message=f"Gemini API request timed out: {e}"
+            )
         except requests.exceptions.HTTPError as e:
+            # 5xx errors are infrastructure failures
+            if hasattr(e, 'response') and e.response and e.response.status_code >= 500:
+                raise ProviderUnavailableError(
+                    provider=f"gemini:{self.model}",
+                    message=f"Gemini service error: {e}"
+                )
+            # 4xx errors (auth, quota, etc.) - propagate as-is
             logging.error(f"Gemini API error: {e}")
             if hasattr(e, 'response') and e.response:
                 logging.error(f"Response: {e.response.text}")

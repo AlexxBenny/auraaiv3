@@ -1,0 +1,103 @@
+{
+  "date": "2026-02-02",
+  "schema_version": 1,
+  "count": 6,
+  "facts": [
+    {
+      "fact_id": "95779e5c-6958-4d77-b1f4-86e9e48c7a74",
+      "timestamp": "2026-02-02T17:19:19.208571",
+      "tool": "system.input.mouse.move",
+      "query": "open chrome",
+      "facts": {
+        "status": "success",
+        "x": 100,
+        "y": 200,
+        "context_verified": false
+      },
+      "fact_keys": [
+        "context_verified",
+        "status",
+        "x",
+        "y"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "a4d39541-d282-4f5e-ace2-d044856d2048",
+      "timestamp": "2026-02-02T17:20:07.571568",
+      "tool": "system.apps.launch.shell",
+      "query": "open notepad",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "3ea654e2-bf2b-4989-a070-1d29631346d0",
+      "timestamp": "2026-02-02T17:57:45.588524",
+      "tool": "system.input.mouse.move",
+      "query": "what is the system status",
+      "facts": {
+        "status": "success",
+        "x": 100,
+        "y": 200,
+        "context_verified": false
+      },
+      "fact_keys": [
+        "context_verified",
+        "status",
+        "x",
+        "y"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "ebbbded5-00fd-432e-806b-fb42d79e153c",
+      "timestamp": "2026-02-02T18:14:17.555018",
+      "tool": "system.apps.launch.shell",
+      "query": "open spotify",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "1e7bd7bf-f9e0-4ff2-a309-b310ab6eafbc",
+      "timestamp": "2026-02-02T18:32:28.743610",
+      "tool": "system.apps.launch.shell",
+      "query": "open spotify",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "82acb4c5-98e9-4e14-863d-9389444f3ff1",
+      "timestamp": "2026-02-02T18:33:08.996983",
+      "tool": "system.apps.launch.shell",
+      "query": "open telegram",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}
