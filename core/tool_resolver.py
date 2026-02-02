@@ -44,9 +44,13 @@ INTENT_TOOL_DOMAINS = {
     # Memory recall (Phase 3A - episodic memory)
     "memory_recall": ["memory"],
     
-    # Future domains
+    # File operations (existing tools)
     "file_operation": ["files"],
-    "browser_control": ["browsers"],
+    
+    # Browser control Phase 0: alias to app launch for browser names
+    # Phase 1+ will add browsers.* domain for real automation
+    "browser_control": ["system.apps.launch", "browsers"],
+    
     "office_operation": ["office"],
     
     # Pure LLM (no tools needed)
@@ -54,6 +58,34 @@ INTENT_TOOL_DOMAINS = {
     
     # Unknown intent → consider all tools
     "unknown": [],
+}
+
+
+# Intent to DISALLOWED tool domains (hard exclusion from Stage 2 fallback)
+# SAFETY INVARIANT: Physical input tools are opt-in only, never guessed.
+INTENT_DISALLOWED_DOMAINS = {
+    # browser_control must NEVER fallback to physical input
+    "browser_control": ["system.input"],
+    
+    # File operations - no mouse guessing
+    "file_operation": ["system.input"],
+    
+    # Office operations - no mouse guessing  
+    "office_operation": ["system.input"],
+    
+    # Application launch/control - no input fallback
+    "application_launch": ["system.input"],
+    "application_control": ["system.input"],
+    
+    # Window management - no raw input fallback (has its own keyboard shortcuts)
+    "window_management": ["system.input"],
+    
+    # Information queries should never execute anything physical
+    "information_query": ["system.input", "system.apps", "system.power"],
+    
+    # Screen operations should not fall back to input
+    "screen_capture": ["system.input"],
+    "screen_perception": ["system.input"],
 }
 
 # Resolution thresholds
@@ -152,6 +184,31 @@ class ToolResolver:
                 "stage": 2,
                 "reason": "No tools registered in system"
             }
+        
+        # SAFETY: Filter out disallowed domains for this intent
+        # This prevents dangerous fallbacks (e.g., browser_control → mouse.move)
+        disallowed = INTENT_DISALLOWED_DOMAINS.get(intent, [])
+        if disallowed:
+            original_count = len(all_tools)
+            all_tools = [
+                t for t in all_tools
+                if not any(t["name"].startswith(d) for d in disallowed)
+            ]
+            filtered_count = original_count - len(all_tools)
+            if filtered_count > 0:
+                logging.info(f"Stage 2: filtered {filtered_count} disallowed tools for intent '{intent}'")
+            
+            if not all_tools:
+                logging.warning(f"Stage 2 aborted: all tools disallowed for intent '{intent}'")
+                return {
+                    "tool": None,
+                    "params": {},
+                    "confidence": 0.0,
+                    "domain_match": False,
+                    "stage": 2,
+                    "status": "capability_missing",
+                    "reason": f"No suitable tools available for intent '{intent}'"
+                }
         
         stage2_result = self._resolve_with_tools(
             description, intent, context, all_tools, stage=2

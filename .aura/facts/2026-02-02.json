@@ -1,7 +1,7 @@
 {
   "date": "2026-02-02",
   "schema_version": 1,
-  "count": 6,
+  "count": 13,
   "facts": [
     {
       "fact_id": "95779e5c-6958-4d77-b1f4-86e9e48c7a74",
@@ -90,6 +90,110 @@
       "timestamp": "2026-02-02T18:33:08.996983",
       "tool": "system.apps.launch.shell",
       "query": "open telegram",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "8752535e-9e51-4abf-b08e-06f8df8b9402",
+      "timestamp": "2026-02-02T20:25:11.400797",
+      "tool": "system.apps.launch.shell",
+      "query": "open steam",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "1e6b1813-1eb9-4b50-9890-7065d081964a",
+      "timestamp": "2026-02-02T20:27:01.984499",
+      "tool": "system.input.mouse.move",
+      "query": "open chrome",
+      "facts": {
+        "status": "success",
+        "x": 100,
+        "y": 200,
+        "context_verified": false
+      },
+      "fact_keys": [
+        "context_verified",
+        "status",
+        "x",
+        "y"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "cbb26a0e-f377-45a2-962d-d16c8198db82",
+      "timestamp": "2026-02-02T20:53:09.896668",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "2a616c72-feba-45be-b8d1-59c571ab2b9f",
+      "timestamp": "2026-02-02T20:56:58.286671",
+      "tool": "system.apps.launch.shell",
+      "query": "open brave",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "cf427a1d-70f1-4ba9-a7d1-b9c172f58fc0",
+      "timestamp": "2026-02-02T20:57:38.861270",
+      "tool": "system.apps.launch.shell",
+      "query": "open edge",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "94b0a52b-0dca-4e84-9084-669e648cf284",
+      "timestamp": "2026-02-02T21:49:59.077356",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "1bb4fb5a-58b9-4222-bae5-040d6b470323",
+      "timestamp": "2026-02-02T21:50:41.451473",
+      "tool": "system.apps.launch.shell",
+      "query": "open brave",
       "facts": {
         "tool": "system.apps.launch.shell"
       },

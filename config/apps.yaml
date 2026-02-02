@@ -1,0 +1,42 @@
+# Application-specific launch configuration
+# Only apps listed here get special treatment
+# Apps not listed work exactly as before
+
+browsers:
+  chrome:
+    executable_patterns:
+      - "chrome.exe"
+      - "Google Chrome"
+    default_args:
+      - "--profile-directory=Default"
+    # Future: named profiles
+    # profiles:
+    #   work: "--profile-directory=Profile 1"
+    #   personal: "--profile-directory=Default"
+    
+  edge:
+    executable_patterns:
+      - "msedge.exe"
+      - "Microsoft Edge"
+    default_args:
+      - "--profile-directory=Default"
+      
+  firefox:
+    executable_patterns:
+      - "firefox.exe"
+      - "Firefox"
+    default_args:
+      - "-P"
+      - "default-release"
+      
+  brave:
+    executable_patterns:
+      - "brave.exe"
+      - "Brave"
+    default_args:
+      - "--profile-directory=Default"
+
+# Future: other apps that need special launch args
+# office:
+#   word:
+#     default_args: []

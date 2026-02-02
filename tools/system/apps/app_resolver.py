@@ -42,9 +42,11 @@ class LaunchTarget:
     value: str  # URI, path, or app_name
     resolution_method: ResolutionMethod
     details: Optional[str] = None  # Additional info (e.g., registry key, shortcut path)
+    args: Optional[list] = None  # Optional command-line arguments (populated by launcher, not resolver)
     
     def __repr__(self) -> str:
-        return f"LaunchTarget({self.target_type}:{self.value} via {self.resolution_method.value})"
+        args_str = f" args={self.args}" if self.args else ""
+        return f"LaunchTarget({self.target_type}:{self.value} via {self.resolution_method.value}{args_str})"
 
 
 # Protocol aliases for non-obvious mappings

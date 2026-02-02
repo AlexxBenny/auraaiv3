@@ -58,14 +58,31 @@ def handle_action(user_input: str, intent: str, context: Dict[str, Any],
     
     if not tool_name:
         reason = resolution.get("reason", "Could not determine which tool to use")
+        resolution_status = resolution.get("status", "")
         logging.warning(f"ActionPipeline: no tool resolved (stage={stage}) - {reason}")
-        # Signal that fallback should be triggered, not hard error
-        return {
-            "status": "needs_fallback",
-            "type": "action",
-            "reason": reason,
-            "resolution": resolution
-        }
+        
+        # Check if this was blocked by safety constraints (capability_missing)
+        # vs just not finding a matching tool (needs_fallback)
+        if resolution_status == "capability_missing":
+            # Safety constraint blocked resolution - don't fall back to reasoning
+            # This is intentional, not a failure to find tools
+            progress.emit("This action isn't supported yet")
+            return {
+                "status": "capability_missing",
+                "type": "action",
+                "intent": intent,
+                "reason": reason,
+                "message": f"I can't do that yet. {reason}",
+                "resolution": resolution
+            }
+        else:
+            # Normal resolution failure - try fallback reasoning
+            return {
+                "status": "needs_fallback",
+                "type": "action",
+                "reason": reason,
+                "resolution": resolution
+            }
     
     # Log resolution details for debugging
     logging.info(
