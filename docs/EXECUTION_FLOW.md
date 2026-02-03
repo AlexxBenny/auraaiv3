@@ -256,54 +256,69 @@ class PlanGraph:
 
 ---
 
-## Container Stack (Anaphora Resolution)
+## Container Stack & Scope Switching
 
 **File:** [`agents/goal_interpreter.py`](file:///d:/aura/AURA/agents/goal_interpreter.py)  
-**Method:** `_fix_container_dependencies()`
+**Methods:** `_fix_container_dependencies()`, `_detect_explicit_anchor()`
 
-### Problem Solved
+### Two Concepts
 
-LLMs bind "inside it" to the **first** container instead of the **most recent**.
+| Concept | What It Controls | Trigger |
+|---------|------------------|---------|
+| **Container Stack** | "inside it" nesting | Folder creation |
+| **Scope Switching** | Location changes | Explicit anchor in user text |
 
-```
-User: "create folder space and inside it folder galaxy and inside it file milkyway"
+### Container Stack
 
-LLM generates: g1 → g0, g2 → g0  ❌ (both bind to space)
-Should be:     g1 → g0, g2 → g1  ✅ (progressive binding)
-```
-
-### How It Works
-
-```python
-for each file_operation goal:
-    if folder → push to container_stack
-    
-    if llm_parent == first_container AND newer_container_exists:
-        rewrite dependency to top_of_stack
-    else:
-        preserve LLM dependency
-```
-
-### Rewrite Condition (all must be true)
-
-1. LLM bound to **first** container (`container_stack[0]`)
-2. There exists a **newer** container (`top != first`)
-3. Goal is a `file_operation`
-
-### Key Rules
-
-| Object Type | Stack Action |
-|-------------|--------------|
-| `folder` | Push to stack |
-| `file` | No push |
-
-### Example
+Fixes "inside it" binding to first container instead of most recent.
 
 ```
 g0: mkdir space        → stack = [0]
 g1: mkdir galaxy       → stack = [0, 1], parent = 0 (correct)
 g2: create milkyway    → stack = [0, 1], parent = 1 (FIXED from 0)
 ```
+
+### Scope Switching
+
+Explicit location (linguistically grounded) starts a new scope.
+
+```
+User: "create space in root folder, galaxy in d drive, milkyway inside it"
+
+Scope 0: WORKSPACE      Scope 1: DRIVE_D
+   └─ space                └─ galaxy
+                               └─ milkyway
+```
+
+### Explicit Anchor Detection
+
+**CRITICAL:** Only user text, NOT LLM-generated paths.
+
+```python
+# Detected from user_input.lower()
+"d drive" / "drive d" → DRIVE_D
+"desktop"            → DESKTOP
+"documents"          → DOCUMENTS
+"downloads"          → DOWNLOADS
+"root folder"        → WORKSPACE
+```
+
+### Key Invariant
+
+> **Only language can change scope, not paths.**
+> 
+> LLM-generated absolute paths are NOT treated as scope switches.
+
+### Path Resolution Invariant
+
+> **Targets describe identity. Dependencies describe structure.**
+> **Only PathResolver combines them.**
+
+| Invariant | Meaning |
+|-----------|---------|
+| **Raw Until Resolution** | Targets are names only (no parent paths) until PathResolver |
+| **Single Combiner** | PathResolver is the ONLY place that does `parent / child` |
+| **No Double-Application** | Container logic NEVER modifies target, only dependencies |
 
 ---
 

@@ -209,16 +209,33 @@ User: "open notepad and open calculator"
 }
 
 ### dependent_multi (goals with dependencies)
+### CRITICAL: targets must be RAW names only, NEVER include parent paths!
+### PathResolver will combine parent + child at resolution time.
 
 User: "create a folder called alex in D drive and create a ppt inside it"
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "D:\\\\alex"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "D:\\\\alex\\\\presentation.pptx"}
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "alex"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "presentation.pptx"}
     ],
     "dependencies": [{"goal_idx": 1, "depends_on": [0]}],
-    "reasoning": "File creation depends on folder existing"
+    "reasoning": "File creation depends on folder existing. Target is just the name, not the full path."
+}
+
+User: "create folder space and inside it folder galaxy and inside it file milkyway"
+→ {
+    "meta_type": "dependent_multi",
+    "goals": [
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "galaxy"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "milkyway.txt"}
+    ],
+    "dependencies": [
+        {"goal_idx": 1, "depends_on": [0]},
+        {"goal_idx": 2, "depends_on": [1]}
+    ],
+    "reasoning": "Each item is inside the most recently created container. Targets are raw names only!"
 }
 
 User: "download the file and then open it"
@@ -251,27 +268,67 @@ User: "open youtube and search nvidia"
         self.model = get_model_manager().get_planner_model()
         logging.info("GoalInterpreter initialized (semantic goal extraction)")
     
+    def _detect_explicit_anchor(self, user_input: str, goal_idx: int) -> Optional[str]:
+        """Detect explicit location anchor from user's LINGUISTIC input.
+        
+        CRITICAL: Only use user text, NOT LLM-generated paths.
+        LLMs sometimes emit absolute paths without user intent.
+        
+        An explicit anchor exists only if linguistically grounded:
+        - "in D drive", "on desktop", "in documents"
+        
+        Args:
+            user_input: Original user command text
+            goal_idx: Index of goal being processed (for future position-based logic)
+            
+        Returns:
+            Anchor name if explicit location found, None otherwise
+        """
+        text = user_input.lower()
+        
+        # Drive letters (most common explicit anchors)
+        if "d drive" in text or "drive d" in text:
+            return "DRIVE_D"
+        if "c drive" in text or "drive c" in text:
+            return "DRIVE_C"
+        if "e drive" in text or "drive e" in text:
+            return "DRIVE_E"
+        
+        # Common user directories
+        if "desktop" in text:
+            return "DESKTOP"
+        if "documents" in text or "my documents" in text:
+            return "DOCUMENTS"
+        if "downloads" in text:
+            return "DOWNLOADS"
+        
+        # Root folder / workspace
+        if "root folder" in text or "root directory" in text:
+            return "WORKSPACE"
+        
+        return None
+    
     def _fix_container_dependencies(
         self, 
         goals_data: List[Dict[str, Any]], 
-        deps_data: List[Dict[str, Any]]
+        deps_data: List[Dict[str, Any]],
+        user_input: str
     ) -> List[Dict[str, Any]]:
-        """Fix ambiguous container dependencies using a container stack.
+        """Fix container dependencies with multi-scope support.
         
-        Only rewrites dependencies when LLM binding is likely wrong.
+        Handles two distinct concepts:
+        1. Container Stack: "inside it" nesting within a scope
+        2. Scope Segments: "in D drive", "on desktop" location switches
         
-        The LLM often binds "inside it" to the FIRST container instead of
-        the MOST RECENT container. This method corrects that specific case
-        while preserving explicit dependencies.
+        An explicit location (linguistically grounded) starts a new scope.
+        "inside it" binds to most recent container within current scope.
         
-        Rewrite condition (all must be true):
-        1. LLM bound to first container (container_stack[0])
-        2. There exists a newer container (container_stack[-1] != container_stack[0])
-        3. Goal is a file_operation
+        INVARIANT: Only language can change scope, not LLM-generated paths.
         
         Args:
             goals_data: List of goal dicts from LLM
             deps_data: List of dependency dicts from LLM
+            user_input: Original user command (for anchor detection)
             
         Returns:
             Corrected dependency list
@@ -284,7 +341,14 @@ User: "open youtube and search nvidia"
             if goal_idx is not None and depends_on:
                 dep_map[goal_idx] = depends_on[0]
         
-        container_stack: List[int] = []
+        # Scope tracking
+        # Each scope has: base_anchor, container_stack (list of goal indices)
+        current_scope_anchor: Optional[str] = None
+        current_container_stack: List[int] = []
+        
+        # Detect if user mentioned any explicit anchors
+        explicit_anchor = self._detect_explicit_anchor(user_input, 0)
+        
         corrected: Dict[int, List[int]] = {}
         
         for idx, goal in enumerate(goals_data):
@@ -295,39 +359,62 @@ User: "open youtube and search nvidia"
             if goal_type != "file_operation":
                 continue
             
-            # Get LLM-chosen parent (if any)
+            # Check if this goal's target suggests a NEW scope
+            # We detect scope change by looking at LLM's target AND user text
+            target = goal.get("target", "")
+            goal_anchor = None
+            
+            # If target looks like it's in a different drive, check if user mentioned it
+            if target and len(target) >= 2 and target[1] == ":":
+                drive_letter = target[0].upper()
+                expected_anchor = f"DRIVE_{drive_letter}"
+                # Only treat as scope switch if user linguistically mentioned this drive
+                if expected_anchor == explicit_anchor and current_scope_anchor != expected_anchor:
+                    goal_anchor = expected_anchor
+            
+            # If we found a linguistic scope switch, start new scope
+            if goal_anchor is not None:
+                current_scope_anchor = goal_anchor
+                current_container_stack = []  # Reset stack for new scope
+                logging.debug(f"ScopeSwitch: New scope {goal_anchor} at goal {idx}")
+            elif current_scope_anchor is None:
+                # Default scope: WORKSPACE
+                current_scope_anchor = "WORKSPACE"
+            
+            # Get LLM-chosen parent
             llm_parent = dep_map.get(idx)
             
-            # If we have containers in scope
-            if container_stack:
-                top_container = container_stack[-1]
-                first_container = container_stack[0]
+            # Determine correct parent within current scope
+            if current_container_stack:
+                top_container = current_container_stack[-1]
+                first_container = current_container_stack[0]
                 
-                # Rewrite ONLY if:
-                # 1. LLM assigned a parent
-                # 2. LLM bound to FIRST container
-                # 3. There is a NEWER container (top != first)
+                # Rewrite if LLM bound to first but newer exists in this scope
                 if (
                     llm_parent is not None
                     and llm_parent == first_container
                     and top_container != first_container
                 ):
-                    # Fix: bind to most recent container
                     corrected[idx] = [top_container]
                     logging.debug(
-                        f"ContainerStack: Fixed g{idx} dependency "
-                        f"from g{llm_parent} to g{top_container}"
+                        f"ContainerStack: Fixed g{idx} from g{llm_parent} to g{top_container} "
+                        f"(scope={current_scope_anchor})"
                     )
                 elif llm_parent is not None:
-                    # LLM dependency is explicit/correct, preserve it
-                    corrected[idx] = [llm_parent]
+                    # Check if LLM parent is in current scope
+                    if llm_parent in current_container_stack:
+                        corrected[idx] = [llm_parent]
+                    elif current_container_stack:
+                        # LLM pointed to wrong scope, use top of current scope
+                        corrected[idx] = [top_container]
+                    else:
+                        corrected[idx] = [llm_parent]
             elif llm_parent is not None:
-                # No containers yet, preserve LLM dependency
                 corrected[idx] = [llm_parent]
             
-            # Folder → push onto container stack
+            # Folder → push onto current scope's container stack
             if object_type == "folder":
-                container_stack.append(idx)
+                current_container_stack.append(idx)
         
         return [
             {"goal_idx": idx, "depends_on": parents}
@@ -379,8 +466,9 @@ Return JSON with:
             
             # FIX: Correct container scope for dependent_multi goals
             # LLMs often bind "inside it" to first container instead of most recent
+            # Also handles multi-scope commands with different explicit locations
             if meta_type == "dependent_multi" and deps_data:
-                deps_data = self._fix_container_dependencies(goals_data, deps_data)
+                deps_data = self._fix_container_dependencies(goals_data, deps_data, user_input)
             
             # Build Goal objects with unique IDs
             goals = tuple(

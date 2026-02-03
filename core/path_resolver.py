@@ -126,6 +126,17 @@ class PathResolver:
         if not raw_path:
             raise ValueError("raw_path cannot be empty")
         
+        # INVARIANT CHECK: Detect targets that already contain parent path segments
+        # This indicates double-application bug (containment applied twice)
+        if parent_resolved is not None:
+            # When inheriting from parent, raw_path should be just a name
+            # NOT a full path like "space/galaxy" or "D:\space\galaxy"
+            if "/" in raw_path or ("\\" in raw_path and not Path(raw_path).is_absolute()):
+                logging.warning(
+                    f"PathResolver: raw_path contains separators before resolution: '{raw_path}'. "
+                    f"This may cause double-application. Target should be just the name."
+                )
+        
         p = Path(raw_path)
         
         # Rule 1: If absolute, use as-is
