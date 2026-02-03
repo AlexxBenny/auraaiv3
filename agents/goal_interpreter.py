@@ -49,11 +49,15 @@ class Goal:
     # Optional fields based on goal_type
     platform: Optional[str] = None      # youtube, google, spotify
     query: Optional[str] = None         # nvidia, weather
-    target: Optional[str] = None        # URL, file path, app name
+    target: Optional[str] = None        # URL, file path, app name (semantic)
     action: Optional[str] = None        # play, mkdir, create
     content: Optional[str] = None       # File content, etc.
     object_type: Optional[str] = None   # "folder" | "file" for file_operation
     goal_id: Optional[str] = None       # Unique ID for action linking
+    
+    # Path resolution fields (set by GoalOrchestrator, NOT by interpreter)
+    base_anchor: Optional[str] = None   # WORKSPACE, DESKTOP, DRIVE_D, etc.
+    resolved_path: Optional[str] = None # Authoritative absolute path (planner MUST use this)
 
 
 @dataclass(frozen=True)
@@ -247,6 +251,89 @@ User: "open youtube and search nvidia"
         self.model = get_model_manager().get_planner_model()
         logging.info("GoalInterpreter initialized (semantic goal extraction)")
     
+    def _fix_container_dependencies(
+        self, 
+        goals_data: List[Dict[str, Any]], 
+        deps_data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Fix ambiguous container dependencies using a container stack.
+        
+        Only rewrites dependencies when LLM binding is likely wrong.
+        
+        The LLM often binds "inside it" to the FIRST container instead of
+        the MOST RECENT container. This method corrects that specific case
+        while preserving explicit dependencies.
+        
+        Rewrite condition (all must be true):
+        1. LLM bound to first container (container_stack[0])
+        2. There exists a newer container (container_stack[-1] != container_stack[0])
+        3. Goal is a file_operation
+        
+        Args:
+            goals_data: List of goal dicts from LLM
+            deps_data: List of dependency dicts from LLM
+            
+        Returns:
+            Corrected dependency list
+        """
+        # Build initial dependency map: goal_idx → parent_idx
+        dep_map: Dict[int, int] = {}
+        for d in deps_data:
+            goal_idx = d.get("goal_idx")
+            depends_on = d.get("depends_on", [])
+            if goal_idx is not None and depends_on:
+                dep_map[goal_idx] = depends_on[0]
+        
+        container_stack: List[int] = []
+        corrected: Dict[int, List[int]] = {}
+        
+        for idx, goal in enumerate(goals_data):
+            goal_type = goal.get("goal_type")
+            object_type = goal.get("object_type")
+            
+            # Only process file_operation goals
+            if goal_type != "file_operation":
+                continue
+            
+            # Get LLM-chosen parent (if any)
+            llm_parent = dep_map.get(idx)
+            
+            # If we have containers in scope
+            if container_stack:
+                top_container = container_stack[-1]
+                first_container = container_stack[0]
+                
+                # Rewrite ONLY if:
+                # 1. LLM assigned a parent
+                # 2. LLM bound to FIRST container
+                # 3. There is a NEWER container (top != first)
+                if (
+                    llm_parent is not None
+                    and llm_parent == first_container
+                    and top_container != first_container
+                ):
+                    # Fix: bind to most recent container
+                    corrected[idx] = [top_container]
+                    logging.debug(
+                        f"ContainerStack: Fixed g{idx} dependency "
+                        f"from g{llm_parent} to g{top_container}"
+                    )
+                elif llm_parent is not None:
+                    # LLM dependency is explicit/correct, preserve it
+                    corrected[idx] = [llm_parent]
+            elif llm_parent is not None:
+                # No containers yet, preserve LLM dependency
+                corrected[idx] = [llm_parent]
+            
+            # Folder → push onto container stack
+            if object_type == "folder":
+                container_stack.append(idx)
+        
+        return [
+            {"goal_idx": idx, "depends_on": parents}
+            for idx, parents in corrected.items()
+        ]
+    
     def interpret(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> MetaGoal:
         """Extract semantic goals from user input.
         
@@ -289,6 +376,11 @@ Return JSON with:
             goals_data = result.get("goals", [])
             deps_data = result.get("dependencies", [])
             reasoning = result.get("reasoning", "")
+            
+            # FIX: Correct container scope for dependent_multi goals
+            # LLMs often bind "inside it" to first container instead of most recent
+            if meta_type == "dependent_multi" and deps_data:
+                deps_data = self._fix_container_dependencies(goals_data, deps_data)
             
             # Build Goal objects with unique IDs
             goals = tuple(

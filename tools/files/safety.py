@@ -69,22 +69,35 @@ MAX_READ_SIZE_BYTES = MAX_READ_SIZE_MB * 1024 * 1024
 # ============================================================================
 
 def normalize_path(path: str) -> Path:
-    """Normalize and resolve path.
+    """Convert path string to Path object.
     
-    This MUST be called before any path operation.
-    Handles:
-    - ~ expansion
-    - Relative path resolution
-    - ../ traversal normalization
-    - Symlink resolution
+    This function handles:
+    - ~ expansion for home directory
+    - String to Path conversion
+    
+    NOTE: This function does NOT call .resolve() anymore.
+    Path resolution is now the sole responsibility of PathResolver.
+    Paths passed to tools should already be absolute.
+    
+    If a relative path is passed, we log a warning but still expand ~.
     
     Args:
-        path: Raw path string from user/LLM
+        path: Path string (should be absolute from PathResolver)
         
     Returns:
-        Resolved absolute Path object
+        Path object
     """
-    return Path(path).expanduser().resolve()
+    p = Path(path).expanduser()
+    
+    # Warn if not absolute - indicates upstream issue
+    if not p.is_absolute():
+        import logging
+        logging.warning(
+            f"normalize_path received relative path: '{path}'. "
+            "Paths should be resolved by PathResolver before reaching tools."
+        )
+    
+    return p
 
 
 # ============================================================================

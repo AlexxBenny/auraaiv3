@@ -2,6 +2,7 @@
 
 from typing import Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
 
 
 class SessionContext:
@@ -17,6 +18,10 @@ class SessionContext:
         self.current_task: Optional[Dict[str, Any]] = None
         self.last_result: Optional[Dict[str, Any]] = None
         self.metadata: Dict[str, Any] = {}
+        
+        # Path resolution: Capture cwd ONCE at session start
+        # This ensures deterministic path resolution throughout session
+        self.cwd: Path = Path.cwd()
     
     def start_task(self, task: Dict[str, Any]):
         """Start a new task"""

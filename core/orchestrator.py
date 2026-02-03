@@ -245,7 +245,7 @@ class Orchestrator:
                     # Execute the action
                     tool_result = self.executor.execute_tool(action.tool, action.args)
                     
-                    if tool_result.get("success", False):
+                    if tool_result.get("status") == "success":
                         success_count += 1
                         results.append({
                             "action_id": action_id,
@@ -386,10 +386,16 @@ class Orchestrator:
     def _get_context(self) -> Dict[str, Any]:
         """Get current context from ambient memory."""
         try:
-            return self.ambient.get_context()
+            ctx = self.ambient.get_context()
         except Exception as e:
             logging.debug(f"Failed to get ambient context: {e}")
-            return {"session": self.context.to_dict()}
+            ctx = {"session": self.context.to_dict()}
+        
+        # Include session context for PathResolver
+        # This enables deterministic path resolution using session cwd
+        ctx["_session_context"] = self.context
+        
+        return ctx
 
 
 # Backward compatibility alias

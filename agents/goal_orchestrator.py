@@ -12,16 +12,19 @@ INVARIANTS:
 - Execution order is topologically valid
 - Partial success returns what succeeded
 - WorldState never mutated
+- All file_operation paths resolved BEFORE planning (single authority)
 
 Phase 1 Scope: single + independent_multi only
 """
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Literal
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Literal, Tuple
 
 from agents.goal_interpreter import Goal, MetaGoal
 from agents.goal_planner import GoalPlanner, Plan, PlannedAction, PlanResult
+from core.path_resolver import PathResolver
 
 
 # =============================================================================
@@ -81,6 +84,98 @@ class GoalOrchestrator:
         self.goal_planner = GoalPlanner()
         logging.info("GoalOrchestrator initialized (multi-goal coordination)")
     
+    def _resolve_goal_paths(
+        self, 
+        meta_goal: MetaGoal, 
+        world_state: Dict[str, Any]
+    ) -> MetaGoal:
+        """Resolve all file_operation paths BEFORE planning.
+        
+        This is the SINGLE AUTHORITY for path resolution.
+        After this method, all file_operation goals have resolved_path set.
+        
+        Resolution rules:
+        1. If user provided absolute path → use as-is
+        2. If dependent goal → inherit parent's resolved path
+        3. Otherwise → resolve against base_anchor (default: WORKSPACE)
+        
+        Args:
+            meta_goal: MetaGoal with potentially unresolved paths
+            world_state: Context containing session info with cwd
+        
+        Returns:
+            New MetaGoal with resolved paths
+        """
+        # Get session context for WORKSPACE anchor
+        context = world_state.get("_session_context")
+        
+        # Track resolved paths for inheritance
+        resolved_paths: Dict[int, Path] = {}  # goal_idx → resolved path
+        
+        resolved_goals = []
+        
+        for idx, goal in enumerate(meta_goal.goals):
+            # Only resolve file_operation goals
+            if goal.goal_type != "file_operation" or not goal.target:
+                resolved_goals.append(goal)
+                continue
+            
+            # Determine parent path for dependent goals
+            parent_path = None
+            deps = meta_goal.get_dependencies(idx)
+            if deps:
+                # Use first dependency's resolved path
+                parent_idx = deps[0]
+                parent_path = resolved_paths.get(parent_idx)
+            
+            # Determine base anchor (from goal or default)
+            base_anchor = goal.base_anchor or "WORKSPACE"
+            
+            try:
+                # Resolve using PathResolver
+                resolved = PathResolver.resolve(
+                    raw_path=goal.target,
+                    base_anchor=base_anchor,
+                    parent_resolved=parent_path,
+                    context=context
+                )
+                
+                # Store for children
+                resolved_paths[idx] = resolved.absolute_path
+                
+                # Create new goal with resolved path
+                # (Goal is frozen, so we create a new one)
+                new_goal = Goal(
+                    goal_type=goal.goal_type,
+                    platform=goal.platform,
+                    query=goal.query,
+                    target=goal.target,  # Keep original for logging
+                    action=goal.action,
+                    content=goal.content,
+                    object_type=goal.object_type,
+                    goal_id=goal.goal_id,
+                    base_anchor=resolved.base_anchor,
+                    resolved_path=str(resolved.absolute_path)  # THE AUTHORITY
+                )
+                resolved_goals.append(new_goal)
+                
+                logging.debug(
+                    f"PathResolver: goal {idx} '{goal.target}' → "
+                    f"'{resolved.absolute_path}' (base={resolved.base_anchor})"
+                )
+                
+            except Exception as e:
+                logging.error(f"Path resolution failed for goal {idx}: {e}")
+                # Keep original goal, planner will fail with assertion
+                resolved_goals.append(goal)
+        
+        # Create new MetaGoal with resolved goals
+        return MetaGoal(
+            meta_type=meta_goal.meta_type,
+            goals=tuple(resolved_goals),
+            dependencies=meta_goal.dependencies
+        )
+    
     def orchestrate(
         self,
         meta_goal: MetaGoal,
@@ -98,6 +193,10 @@ class GoalOrchestrator:
             OrchestrationResult with PlanGraph or failure info
         """
         world_state = world_state or {}
+        
+        # STEP 0: Resolve all file_operation paths BEFORE planning
+        # This is the SINGLE AUTHORITY for path resolution
+        meta_goal = self._resolve_goal_paths(meta_goal, world_state)
         
         if meta_goal.meta_type == "single":
             return self._handle_single(meta_goal, world_state, capabilities)

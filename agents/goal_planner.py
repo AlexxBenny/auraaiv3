@@ -297,22 +297,34 @@ class GoalPlanner:
         - Object type disambiguation (folder vs file)
         - Dynamic action IDs for linking
         - Safe defaults (create_parents=True, exist_ok=True)
+        
+        INVARIANT: goal.resolved_path MUST be set by GoalOrchestrator.
+        This planner does NOT resolve paths - that's PathResolver's job.
         """
         from pathlib import Path
         
-        target = goal.target
+        # Use resolved_path (AUTHORITY) - set by GoalOrchestrator
+        # Fall back to target only for backward compatibility
+        target = goal.resolved_path or goal.target
+        
         if not target:
             return PlanResult(
                 status="blocked",
                 reason="No file/folder path provided"
             )
         
-        # Normalize path early
-        try:
-            target = str(Path(target).resolve())
-        except Exception:
-            # Path resolution failed, use as-is
-            pass
+        # INVARIANT: Path must be absolute (resolved by PathResolver)
+        # If not, something went wrong upstream
+        if not Path(target).is_absolute():
+            logging.warning(
+                f"GoalPlanner: Path not absolute: '{target}'. "
+                "This indicates GoalOrchestrator did not resolve paths."
+            )
+            # Fail explicitly rather than silently resolving wrong
+            return PlanResult(
+                status="blocked",
+                reason=f"Path not resolved by orchestrator: {target}"
+            )
         
         # Normalize action
         raw_action = (goal.action or "create").lower()
