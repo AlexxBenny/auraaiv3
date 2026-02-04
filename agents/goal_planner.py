@@ -395,6 +395,12 @@ class GoalPlanner:
             total_actions=1
         )
         
+        # DEBUG: Log planned action with full path info
+        logging.info(
+            f"DEBUG: GoalPlanner file_operation → "
+            f"action={action}, object_type={object_type}, "
+            f"target={target}, base_anchor={goal.base_anchor}"
+        )
         logging.info(f"GoalPlanner: file_operation → abstract action ({action}:{object_type}:{Path(target).name})")
         
         return PlanResult(status="success", plan=plan)

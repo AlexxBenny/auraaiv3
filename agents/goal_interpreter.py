@@ -372,6 +372,16 @@ User: "open youtube and search nvidia"
     "dependencies": [],
     "reasoning": "One semantic goal: search nvidia on youtube"
 }
+
+User: "create a folder named space in D drive"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space"}
+    ],
+    "dependencies": [],
+    "reasoning": "Single file operation with explicit location. Location is detected separately."
+}
 """
     
     def __init__(self):
@@ -669,8 +679,20 @@ Return JSON with:
             # FIX: Correct container scope for dependent_multi goals
             # LLMs often bind "inside it" to first container instead of most recent
             # Also handles multi-scope commands with different explicit locations
+            
+            # DEBUG: Log raw LLM output before fix
+            logging.info(f"DEBUG: LLM goals BEFORE fix: {goals_data}")
+            logging.info(f"DEBUG: LLM deps BEFORE fix: {deps_data}")
+            
             if meta_type == "dependent_multi" and deps_data:
                 deps_data = self._fix_container_dependencies(goals_data, deps_data, user_input)
+            
+            # DEBUG: Log after fix
+            logging.info(f"DEBUG: deps AFTER fix: {deps_data}")
+            
+            # Detect explicit location anchor from user input
+            explicit_anchor = self._detect_explicit_anchor(user_input, 0)
+            logging.info(f"DEBUG: Detected explicit_anchor: {explicit_anchor}")
             
             # Build Goal objects with unique IDs
             goals = tuple(
@@ -682,10 +704,20 @@ Return JSON with:
                     action=g.get("action"),
                     content=g.get("content"),
                     object_type=g.get("object_type"),
-                    goal_id=f"g{i}"  # Unique ID for action linking
+                    goal_id=f"g{i}",  # Unique ID for action linking
+                    parent_target=g.get("parent_target"),  # CRITICAL: Extract parent_target!
+                    # Attach explicit anchor to file_operation goals only
+                    base_anchor=explicit_anchor if g.get("goal_type") == "file_operation" else None
                 )
                 for i, g in enumerate(goals_data)
             )
+            
+            # DEBUG: Log constructed goals
+            for i, g in enumerate(goals):
+                logging.info(
+                    f"DEBUG: Goal[{i}] type={g.goal_type}, target={g.target}, "
+                    f"parent_target={g.parent_target}, base_anchor={g.base_anchor}"
+                )
             
             # Build dependencies tuple
             dependencies = tuple(

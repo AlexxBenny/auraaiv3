@@ -181,10 +181,15 @@ class GoalOrchestrator:
             # Determine parent path for dependent goals
             parent_path = None
             deps = meta_goal.get_dependencies(idx)
+            
+            # DEBUG: Log dependency resolution
+            logging.info(f"DEBUG: Goal {idx} '{goal.target}' - deps={deps}, parent_target={goal.parent_target}")
+            
             if deps:
                 # Use first dependency's resolved path
                 parent_idx = deps[0]
                 parent_path = resolved_paths.get(parent_idx)
+                logging.info(f"DEBUG: Goal {idx} using parent_path from goal {parent_idx}: {parent_path}")
             
             # Determine base anchor (from goal or default)
             base_anchor = goal.base_anchor or "WORKSPACE"
