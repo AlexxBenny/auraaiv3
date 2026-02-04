@@ -131,20 +131,24 @@ Your job is to decompose a user request into execution blocks that can be run by
 
 ## Available Pipelines
 
-1. **goal** pipeline: For plannable, declarative goals
+1. **goal** pipeline ONLY: For plannable, declarative goals. Use this for ALL actions when the request is multi-goal:
    - Opening applications: "open chrome", "launch notepad"
    - Browser navigation: "go to youtube", "search google for X"
    - File operations: "create folder X", "delete file Y"
+   - Media control (play, pause, mute, etc.)
+   - Display control (brightness, screenshot, etc.)
+   - System control (volume, power, etc.)
+   - System queries (battery, memory, etc.)
+NOTE: Multiple different action types in the same request should usually go in ONE goal block unless there is a conditional dependency.
+
    
-2. **single** pipeline: For imperative, context-sensitive actions
-   - Media control: "pause music", "play next track"
-   - System control: "set brightness to 50", "mute volume"
-   - Queries: "what's the battery level", "show running apps"
 
 ## Rules
 
-1. Group related plannable goals into ONE goal pipeline block
-2. Keep imperative actions as separate single pipeline blocks
+1. If the request is multi-goal AND contains NO conditionals, group ALL actions into ONE goal pipeline block. Do NOT split independent actions into multiple blocks.
+2. If the request contains conditionals:
+   - create separate blocks ONLY for conditional branches,
+   - but keep all non-conditional actions in ONE goal block.
 3. Mark `needs_iteration: true` ONLY if you need to see results before continuing
 4. Mark `parallel_safe: true` for independent blocks (advisory, not enforced yet)
 5. Use conditionals ONLY when the user explicitly requests conditional behavior
@@ -153,7 +157,7 @@ Your job is to decompose a user request into execution blocks that can be run by
 8. For file locations, use explicit paths or preserve user phrases like "in D drive", "on desktop"
 9. For "if empty" patterns, use `content_empty`. For "if not empty", use `content_nonempty`
 10. Only file-reading actions can be sources for content-based conditionals
-11. **CRITICAL**: For single pipeline blocks, `source_span` MUST be the EXACT substring from user input. NEVER paraphrase imperative commands (e.g., "unmute" must stay "unmute", not become "mute")
+11. For goal pipeline blocks, DO NOT paraphrase action verbs. Preserve words like "mute", "unmute", "play", "pause", "lower", "raise" exactly as written.
 
 ## User Request
 
@@ -213,6 +217,10 @@ class ExecutionCoordinator:
         blocks = plan.get("blocks", [])
         needs_iteration = plan.get("needs_iteration", False)
         conditionals = plan.get("conditionals", [])
+        
+        # Stash QC classification for _execute_block enforcement
+        # INVARIANT: When QC=multi, all blocks MUST use goal pipeline
+        context["_qc_class"] = "multi"  # ExecutionCoordinator only runs for multi
         
         if not blocks:
             logging.warning("Coordinator: no blocks produced, falling back to single")
@@ -359,32 +367,35 @@ class ExecutionCoordinator:
     ) -> Dict[str, Any]:
         """Dispatch block to appropriate pipeline.
         
-        INVARIANT: For single pipeline, we use source_span or original_input
-        to preserve exact user semantics. LLM must never paraphrase imperatives.
+        INVARIANT: When QC=multi, ALL blocks go to goal pipeline.
+        The single pipeline is ONLY for pure single queries (QC=single).
         """
-        pipeline = block.get("pipeline", "single")
+        qc_class = context.get("_qc_class")
+        
+        # PHASE 4 ENFORCEMENT: multi queries ALWAYS use goal pipeline
+        if qc_class == "multi":
+            pipeline = "goal"  # FORCE goal pipeline, ignore block["pipeline"]
+        else:
+            pipeline = block.get("pipeline", "single")
         
         if pipeline == "goal":
-            # Goal pipeline: LLM can compose declarative text
+            # Goal pipeline: all multi-query actions go here
             input_str = block.get("input", "")
             logging.info(f"Coordinator: dispatching to goal pipeline: {input_str[:50]}")
             return self.orchestrator._process_goal(input_str, context)
         else:
-            # Single pipeline: MUST use exact user text, never LLM-generated
-            # Priority: source_span > input (if exact) > original_input
+            # Single pipeline: ONLY for QC=single queries
+            # Uses exact user text, never LLM-generated
             source_span = block.get("source_span", "")
             input_str = block.get("input", "")
             
-            # Use source_span if provided (preferred)
             if source_span and source_span.lower() in original_input.lower():
                 execution_input = source_span
                 logging.info(f"Coordinator: using source_span for single pipeline: {source_span}")
-            # Otherwise check if input is exact substring of original
             elif input_str and input_str.lower() in original_input.lower():
                 execution_input = input_str
                 logging.info(f"Coordinator: using verified input for single pipeline: {input_str}")
             else:
-                # Fallback: Log warning, use input but this may be paraphrased
                 execution_input = input_str or original_input
                 logging.warning(
                     f"Coordinator: single block input may be paraphrased. "

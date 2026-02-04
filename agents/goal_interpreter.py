@@ -36,6 +36,8 @@ class Goal:
     - app_action: Perform action within an app
     - file_operation: File/folder CRUD
     - system_query: Get system information
+    - system_control: Control system state (audio, display, power)
+    - media_control: Control media playback (play, pause, next, previous)
     """
     goal_type: Literal[
         "browser_search",
@@ -43,7 +45,9 @@ class Goal:
         "app_launch",
         "app_action",
         "file_operation",
-        "system_query"
+        "system_query",
+        "system_control",
+        "media_control"
     ]
     
     # Optional fields based on goal_type
@@ -54,6 +58,7 @@ class Goal:
     content: Optional[str] = None       # File content, etc.
     object_type: Optional[str] = None   # "folder" | "file" for file_operation
     goal_id: Optional[str] = None       # Unique ID for action linking
+    parent_target: Optional[str] = None # Explicit parent by name ("inside X")
     
     # Path resolution fields (set by GoalOrchestrator, NOT by interpreter)
     base_anchor: Optional[str] = None   # WORKSPACE, DESKTOP, DRIVE_D, etc.
@@ -151,7 +156,9 @@ class GoalInterpreter:
                                 "app_launch",
                                 "app_action",
                                 "file_operation",
-                                "system_query"
+                                "system_query",
+                                "system_control",
+                                "media_control"
                             ]
                         },
                         "platform": {"type": "string"},
@@ -159,6 +166,10 @@ class GoalInterpreter:
                         "target": {"type": "string"},
                         "action": {"type": "string"},
                         "content": {"type": "string"},
+                        "parent_target": {
+                            "type": "string",
+                            "description": "Explicit parent folder name for 'inside X' patterns"
+                        },
                         "object_type": {
                             "type": "string",
                             "enum": ["folder", "file"],
@@ -206,11 +217,33 @@ User: "increase volume and take a screenshot"
 → {
     "meta_type": "independent_multi", 
     "goals": [
-        {"goal_type": "system_query", "action": "set_volume"},
-        {"goal_type": "system_query", "action": "screenshot"}
+        {"goal_type": "system_control", "action": "volume_up"},
+        {"goal_type": "system_control", "action": "screenshot"}
     ],
     "dependencies": [],
-    "reasoning": "Two independent system operations"
+    "reasoning": "Two independent system control operations"
+}
+
+User: "unmute and set brightness to 50"
+→ {
+    "meta_type": "independent_multi", 
+    "goals": [
+        {"goal_type": "system_control", "action": "unmute"},
+        {"goal_type": "system_control", "action": "set_brightness", "target": "50"}
+    ],
+    "dependencies": [],
+    "reasoning": "Two independent system control: audio unmute and display brightness"
+}
+
+User: "mute volume and lower brightness"
+→ {
+    "meta_type": "independent_multi", 
+    "goals": [
+        {"goal_type": "system_control", "action": "mute"},
+        {"goal_type": "system_control", "action": "lower_brightness"}
+    ],
+    "dependencies": [],
+    "reasoning": "Two independent system control: audio mute and display"
 }
 
 User: "open notepad and open calculator"
@@ -222,6 +255,39 @@ User: "open notepad and open calculator"
     ],
     "dependencies": [],
     "reasoning": "Two independent app launches"
+}
+
+User: "play music and open spotify"
+→ {
+    "meta_type": "independent_multi",
+    "goals": [
+        {"goal_type": "media_control", "action": "play"},
+        {"goal_type": "app_launch", "target": "spotify"}
+    ],
+    "dependencies": [],
+    "reasoning": "Media playback control and app launch are independent"
+}
+
+User: "pause the music and next track"
+→ {
+    "meta_type": "independent_multi",
+    "goals": [
+        {"goal_type": "media_control", "action": "pause"},
+        {"goal_type": "media_control", "action": "next_track"}
+    ],
+    "dependencies": [],
+    "reasoning": "Two media control operations"
+}
+
+User: "take a screenshot and mute"
+→ {
+    "meta_type": "independent_multi",
+    "goals": [
+        {"goal_type": "system_control", "action": "screenshot"},
+        {"goal_type": "system_control", "action": "mute"}
+    ],
+    "dependencies": [],
+    "reasoning": "Screenshot and mute are independent system control operations"
 }
 
 ### dependent_multi (goals with dependencies)
@@ -252,6 +318,34 @@ User: "create folder space and inside it folder galaxy and inside it file milkyw
         {"goal_idx": 2, "depends_on": [1]}
     ],
     "reasoning": "Each item is inside the most recently created container. Targets are raw names only!"
+}
+
+User: "create folder X, create folder Y, create folder Z inside X"
+→ {
+    "meta_type": "dependent_multi",
+    "goals": [
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "parent_target": "X"}
+    ],
+    "dependencies": [
+        {"goal_idx": 2, "depends_on": [0]}
+    ],
+    "reasoning": "Z explicitly refers to X by name, not the most recent folder Y. Use parent_target for explicit references."
+}
+
+User: "create two folders named X and Y. Inside X create folder Z"
+→ {
+    "meta_type": "dependent_multi",
+    "goals": [
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "parent_target": "X"}
+    ],
+    "dependencies": [
+        {"goal_idx": 2, "depends_on": [0]}
+    ],
+    "reasoning": "X and Y are SIBLINGS (no dependency between them). Z is inside X via parent_target. 'Inside X' only applies to Z, not Y."
 }
 
 User: "download the file and then open it"
@@ -420,6 +514,23 @@ User: "open youtube and search nvidia"
             if goal_type != "file_operation":
                 continue
             
+            # NEW: Explicit parent_target overrides stack behavior
+            # "inside X" → binds to goal named X
+            parent_target = goal.get("parent_target")
+            if parent_target:
+                # Build name → idx map
+                name_to_idx = {g.get("target"): i for i, g in enumerate(goals_data)}
+                if parent_target in name_to_idx:
+                    corrected[idx] = [name_to_idx[parent_target]]
+                    logging.debug(
+                        f"ExplicitParent: g{idx} bound to g{name_to_idx[parent_target]} "
+                        f"(parent_target='{parent_target}')"
+                    )
+                    # Still push folders to stack for future "inside it"
+                    if object_type == "folder":
+                        current_container_stack.append(idx)
+                    continue
+            
             # Check if this goal's target suggests a NEW scope
             # We detect scope change by looking at LLM's target AND user text
             target = goal.get("target", "")
@@ -446,32 +557,33 @@ User: "open youtube and search nvidia"
             llm_parent = dep_map.get(idx)
             
             # Determine correct parent within current scope
-            if current_container_stack:
-                top_container = current_container_stack[-1]
-                first_container = current_container_stack[0]
-                
-                # Rewrite if LLM bound to first but newer exists in this scope
-                if (
-                    llm_parent is not None
-                    and llm_parent == first_container
-                    and top_container != first_container
-                ):
-                    corrected[idx] = [top_container]
-                    logging.debug(
-                        f"ContainerStack: Fixed g{idx} from g{llm_parent} to g{top_container} "
-                        f"(scope={current_scope_anchor})"
-                    )
-                elif llm_parent is not None:
-                    # Check if LLM parent is in current scope
-                    if llm_parent in current_container_stack:
-                        corrected[idx] = [llm_parent]
-                    elif current_container_stack:
-                        # LLM pointed to wrong scope, use top of current scope
+            # KEY RULE: If LLM says no parent (llm_parent is None), respect that (sibling)
+            # Only apply stack logic when LLM explicitly chose a parent
+            if llm_parent is not None:
+                if current_container_stack:
+                    top_container = current_container_stack[-1]
+                    first_container = current_container_stack[0]
+                    
+                    # Rewrite if LLM bound to first but newer exists in this scope
+                    if (
+                        llm_parent == first_container
+                        and top_container != first_container
+                    ):
                         corrected[idx] = [top_container]
-                    else:
+                        logging.debug(
+                            f"ContainerStack: Fixed g{idx} from g{llm_parent} to g{top_container} "
+                            f"(scope={current_scope_anchor})"
+                        )
+                    elif llm_parent in current_container_stack:
+                        # LLM parent is valid within current scope
                         corrected[idx] = [llm_parent]
-            elif llm_parent is not None:
-                corrected[idx] = [llm_parent]
+                    else:
+                        # LLM parent not in scope, keep LLM's choice (trust LLM)
+                        corrected[idx] = [llm_parent]
+                else:
+                    # No container stack, use LLM's choice
+                    corrected[idx] = [llm_parent]
+            # ELSE: llm_parent is None → sibling (no dependency), don't add to corrected
             
             # Folder → push onto current scope's container stack
             if object_type == "folder":

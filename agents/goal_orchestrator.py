@@ -84,6 +84,64 @@ class GoalOrchestrator:
         self.goal_planner = GoalPlanner()
         logging.info("GoalOrchestrator initialized (multi-goal coordination)")
     
+    def _resolve_and_execute(
+        self,
+        action: PlannedAction,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Resolve abstract PlannedAction → concrete tool → execute.
+        
+        Invariant: EVERY action goes through ToolResolver.
+        No exceptions (including file operations).
+        
+        Args:
+            action: Abstract PlannedAction with intent + description
+            context: Current world state (ambient context)
+            
+        Returns:
+            Execution result dict with status and result/error
+        """
+        from core.tool_resolver import ToolResolver
+        from core.context_snapshot import ContextSnapshot
+        from execution.executor import ToolExecutor
+        
+        resolver = ToolResolver()
+        executor = ToolExecutor()
+        
+        # Build structured context snapshot
+        context_snapshot = ContextSnapshot.build(context)
+        
+        resolution = resolver.resolve(
+            description=action.description,
+            intent=action.intent,
+            context=context
+        )
+        
+        tool_name = resolution.get("tool")
+        params = resolution.get("params", {})
+        
+        # For file_operation: inject path from action.args (not LLM output)
+        # This keeps Windows paths out of JSON entirely
+        if action.intent == "file_operation" and "path" in action.args:
+            params["path"] = action.args["path"]
+        
+        if not tool_name:
+            logging.warning(
+                f"GoalOrchestrator: resolution failed for action '{action.description}' "
+                f"(intent={action.intent}) - {resolution.get('reason', 'unknown')}"
+            )
+            return {
+                "status": "error",
+                "reason": resolution.get("reason", "Tool resolution failed"),
+                "action": action.description,
+            }
+        
+        logging.info(
+            f"GoalOrchestrator: resolved {action.description} → {tool_name}"
+        )
+        
+        return executor.execute_tool(tool_name, params)
+    
     def _resolve_goal_paths(
         self, 
         meta_goal: MetaGoal, 
@@ -355,7 +413,8 @@ class GoalOrchestrator:
             # Update action with prefixed ID
             nodes[prefixed_id] = PlannedAction(
                 action_id=prefixed_id,
-                tool=action.tool,
+                intent=action.intent,
+                description=action.description,
                 args=action.args,
                 expected_effect=action.expected_effect,
                 depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on]
@@ -388,7 +447,8 @@ class GoalOrchestrator:
                 
                 nodes[prefixed_id] = PlannedAction(
                     action_id=prefixed_id,
-                    tool=action.tool,
+                    intent=action.intent,
+                    description=action.description,
                     args=action.args,
                     expected_effect=action.expected_effect,
                     depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on]
@@ -425,7 +485,8 @@ class GoalOrchestrator:
                 
                 nodes[prefixed_id] = PlannedAction(
                     action_id=prefixed_id,
-                    tool=action.tool,
+                    intent=action.intent,
+                    description=action.description,
                     args=action.args,
                     expected_effect=action.expected_effect,
                     depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on]

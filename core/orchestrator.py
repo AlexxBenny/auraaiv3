@@ -316,23 +316,25 @@ class Orchestrator:
                 action = plan_graph.nodes[action_id]
                 
                 try:
-                    # Execute the action
-                    tool_result = self.executor.execute_tool(action.tool, action.args)
+                    # Execute via resolver - Phase 3 abstract action → concrete tool
+                    tool_result = self.goal_orchestrator._resolve_and_execute(
+                        action, context
+                    )
                     
                     if tool_result.get("status") == "success":
                         success_count += 1
                         results.append({
                             "action_id": action_id,
                             "status": "success",
-                            "tool": action.tool,
+                            "description": action.description,
                             "result": tool_result
                         })
                     else:
                         results.append({
                             "action_id": action_id,
                             "status": "failed",
-                            "tool": action.tool,
-                            "error": tool_result.get("error", "Unknown error")
+                            "description": action.description,
+                            "error": tool_result.get("error", tool_result.get("reason", "Unknown error"))
                         })
                         
                 except Exception as e:

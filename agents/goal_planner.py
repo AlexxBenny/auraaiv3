@@ -25,15 +25,44 @@ from agents.goal_interpreter import Goal
 
 
 # =============================================================================
+# GOAL TO INTENT MAPPING (Single Source of Truth)
+# =============================================================================
+
+GOAL_TO_INTENT = {
+    "browser_search": "browser_control",
+    "browser_navigate": "browser_control",
+    "app_launch": "application_launch",
+    "app_action": "application_control",
+    "file_operation": "file_operation",
+    "system_query": "system_query",
+    "system_control": "system_control",
+    "media_control": "system_control",
+}
+
+# Guard: GOAL_TO_INTENT must cover all goal types
+from agents.goal_interpreter import Goal
+_allowed_goal_types = set(Goal.__annotations__["goal_type"].__args__)
+assert set(GOAL_TO_INTENT.keys()) == _allowed_goal_types, \
+    f"GOAL_TO_INTENT out of sync: missing {_allowed_goal_types - set(GOAL_TO_INTENT.keys())}"
+del _allowed_goal_types  # Clean up module namespace
+
+
+# =============================================================================
 # PLAN DATA CONTRACTS (Immutable where possible)
 # =============================================================================
 
 @dataclass
 class PlannedAction:
-    """A single action in a plan."""
+    """A single abstract action in a plan.
+    
+    INVARIANT: This is an ABSTRACT action, not a concrete tool call.
+    The intent + description are resolved to a concrete tool by ToolResolver
+    in Phase 3 (GoalOrchestrator._resolve_and_execute).
+    """
     action_id: str
-    tool: str
-    args: Dict[str, Any]
+    intent: str            # Abstract intent (e.g., "system_control", "file_operation")
+    description: str       # Structured string for ToolResolver (e.g., "create:folder:X")
+    args: Dict[str, Any]   # Semantic args (not tool-specific)
     expected_effect: str
     depends_on: List[str] = field(default_factory=list)
 
@@ -173,21 +202,20 @@ class GoalPlanner:
             return self._plan_app_launch(goal, world_state)
         elif goal.goal_type == "file_operation":
             return self._plan_file_operation(goal, world_state)
+        elif goal.goal_type == "system_control":
+            return self._plan_system_control(goal, world_state)
+        elif goal.goal_type == "media_control":
+            return self._plan_media_control(goal, world_state)
+        elif goal.goal_type == "system_query":
+            return self._plan_system_query(goal, world_state)
         else:
-            # Unsupported goal type
-            logging.info(f"GoalPlanner: goal_type '{goal.goal_type}' not supported")
-            return PlanResult(
-                status="no_capability",
-                reason=f"Goal type '{goal.goal_type}' not supported"
-            )
+            # All goal types must be handled - fail fast
+            raise AssertionError(f"Unplanned goal_type: {goal.goal_type}")
     
     def _plan_browser_search(self, goal: Goal, world_state: Dict) -> PlanResult:
-        """Plan browser search - THE MERGING HAPPENS HERE.
+        """Plan browser search - abstract action.
         
-        "open youtube and search nvidia" becomes:
-        - ONE action
-        - ONE URL: youtube.com/results?search_query=nvidia
-        - ONE tab
+        Emits intent + description for ToolResolver to resolve.
         """
         platform = (goal.platform or DEFAULT_SEARCH_ENGINE).lower()
         query = goal.query or ""
@@ -198,22 +226,23 @@ class GoalPlanner:
                 reason="No search query provided"
             )
         
-        # Build search URL
+        # Build search URL for description context
         if platform in SEARCH_ENGINES:
             url_template = SEARCH_ENGINES[platform]
             url = url_template.format(query=quote(query))
         else:
-            # Unknown platform - default to google search
             logging.warning(f"Unknown search platform '{platform}', defaulting to Google")
             url = SEARCH_ENGINES["google"].format(query=quote(f"{platform} {query}"))
         
-        # Single action plan
+        # Abstract action
         action = PlannedAction(
             action_id="a1",
-            tool="system.apps.launch.shell",
+            intent=GOAL_TO_INTENT["browser_search"],
+            description=f"search:{platform}:{query}",
             args={
-                "app_name": DEFAULT_BROWSER,
-                "url": url
+                "platform": platform,
+                "query": query,
+                "url": url  # Pre-computed for ToolResolver
             },
             expected_effect=f"{platform}_search_results_visible"
         )
@@ -224,12 +253,12 @@ class GoalPlanner:
             total_actions=1
         )
         
-        logging.info(f"GoalPlanner: browser_search → 1 action (URL: {url[:50]}...)")
+        logging.info(f"GoalPlanner: browser_search → abstract action (search:{platform}:{query[:30]})")
         
         return PlanResult(status="success", plan=plan)
     
     def _plan_browser_navigate(self, goal: Goal, world_state: Dict) -> PlanResult:
-        """Plan browser navigation to URL."""
+        """Plan browser navigation - abstract action."""
         url = goal.target
         
         if not url:
@@ -244,11 +273,9 @@ class GoalPlanner:
         
         action = PlannedAction(
             action_id="a1",
-            tool="system.apps.launch.shell",
-            args={
-                "app_name": DEFAULT_BROWSER,
-                "url": url
-            },
+            intent=GOAL_TO_INTENT["browser_navigate"],
+            description=f"navigate:{url}",
+            args={"url": url},
             expected_effect="url_loaded"
         )
         
@@ -258,12 +285,12 @@ class GoalPlanner:
             total_actions=1
         )
         
-        logging.info(f"GoalPlanner: browser_navigate → 1 action (URL: {url})")
+        logging.info(f"GoalPlanner: browser_navigate → abstract action ({url})")
         
         return PlanResult(status="success", plan=plan)
     
     def _plan_app_launch(self, goal: Goal, world_state: Dict) -> PlanResult:
-        """Plan simple app launch."""
+        """Plan app launch - abstract action."""
         app_name = goal.target
         
         if not app_name:
@@ -274,7 +301,8 @@ class GoalPlanner:
         
         action = PlannedAction(
             action_id="a1",
-            tool="system.apps.launch.shell",
+            intent=GOAL_TO_INTENT["app_launch"],
+            description=f"launch:{app_name}",
             args={"app_name": app_name},
             expected_effect=f"{app_name}_running"
         )
@@ -285,18 +313,17 @@ class GoalPlanner:
             total_actions=1
         )
         
-        logging.info(f"GoalPlanner: app_launch → 1 action ({app_name})")
+        logging.info(f"GoalPlanner: app_launch → abstract action ({app_name})")
         
         return PlanResult(status="success", plan=plan)
     
     def _plan_file_operation(self, goal: Goal, world_state: Dict) -> PlanResult:
-        """Plan file/folder operation with action normalization.
+        """Plan file/folder operation - abstract action.
         
         Handles:
         - Action normalization (mkdir, make, new -> create)
         - Object type disambiguation (folder vs file)
         - Dynamic action IDs for linking
-        - Safe defaults (create_parents=True, exist_ok=True)
         
         INVARIANT: goal.resolved_path MUST be set by GoalOrchestrator.
         This planner does NOT resolve paths - that's PathResolver's job.
@@ -320,7 +347,6 @@ class GoalPlanner:
                 f"GoalPlanner: Path not absolute: '{target}'. "
                 "This indicates GoalOrchestrator did not resolve paths."
             )
-            # Fail explicitly rather than silently resolving wrong
             return PlanResult(
                 status="blocked",
                 reason=f"Path not resolved by orchestrator: {target}"
@@ -339,36 +365,26 @@ class GoalPlanner:
             else:
                 object_type = "folder"
         
-        # Look up tool
-        tool = FILE_OPERATION_TOOLS.get((action, object_type))
-        if not tool:
-            # Try action without object_type (for move, copy, etc.)
-            tool = FILE_OPERATION_TOOLS.get((action, None))
-        
-        if not tool:
-            return PlanResult(
-                status="no_capability",
-                reason=f"No tool for action '{action}' on {object_type}"
-            )
-        
-        # Build args based on tool
-        args = {"path": target}
-        
-        if tool == "files.create_folder":
-            args["parents"] = True
-            args["exist_ok"] = True
-        elif tool == "files.create_file":
-            args["create_parents"] = True
-            if goal.content:
-                args["content"] = goal.content
-        
         # Generate unique action ID from goal_id
         goal_id = goal.goal_id or "g0"
         action_id = f"{goal_id}_a1"
         
+        # Build semantic args
+        args = {
+            "action": action,
+            "object_type": object_type,
+            "path": target
+        }
+        
+        # Add optional fields
+        if goal.content:
+            args["content"] = goal.content
+        
+        # Structured description: action:object_type (NO PATH - stays in args)
         planned_action = PlannedAction(
             action_id=action_id,
-            tool=tool,
+            intent=GOAL_TO_INTENT["file_operation"],
+            description=f"{action}:{object_type}",
             args=args,
             expected_effect=f"{action}_{object_type}_completed"
         )
@@ -379,6 +395,79 @@ class GoalPlanner:
             total_actions=1
         )
         
-        logging.info(f"GoalPlanner: file_operation → {tool} ({target})")
+        logging.info(f"GoalPlanner: file_operation → abstract action ({action}:{object_type}:{Path(target).name})")
+        
+        return PlanResult(status="success", plan=plan)
+    
+    def _plan_system_control(self, goal: Goal, world_state: Dict) -> PlanResult:
+        """Plan system control action (audio, display, power) - abstract action."""
+        action = goal.action or "unknown"
+        value = goal.target  # e.g., "60" for brightness
+        
+        # Structured description
+        if value:
+            description = f"{action}:{value}"
+        else:
+            description = action
+        
+        planned_action = PlannedAction(
+            action_id="a0",
+            intent=GOAL_TO_INTENT["system_control"],
+            description=description,
+            args={"action": action, "value": value},
+            expected_effect=f"{action}_complete"
+        )
+        
+        plan = Plan(
+            actions=[planned_action],
+            goal_achieved_by="a0",
+            total_actions=1
+        )
+        
+        logging.info(f"GoalPlanner: system_control → abstract action ({description})")
+        
+        return PlanResult(status="success", plan=plan)
+    
+    def _plan_media_control(self, goal: Goal, world_state: Dict) -> PlanResult:
+        """Plan media control action (play, pause, next, previous) - abstract action."""
+        action = goal.action or "play"
+        
+        planned_action = PlannedAction(
+            action_id="a0",
+            intent=GOAL_TO_INTENT["media_control"],
+            description=action,
+            args={"action": action},
+            expected_effect=f"{action}_complete"
+        )
+        
+        plan = Plan(
+            actions=[planned_action],
+            goal_achieved_by="a0",
+            total_actions=1
+        )
+        
+        logging.info(f"GoalPlanner: media_control → abstract action ({action})")
+        
+        return PlanResult(status="success", plan=plan)
+    
+    def _plan_system_query(self, goal: Goal, world_state: Dict) -> PlanResult:
+        """Plan system query (battery, time, disk usage) - abstract action."""
+        query_type = goal.action or goal.query or "status"
+        
+        planned_action = PlannedAction(
+            action_id="a0",
+            intent=GOAL_TO_INTENT["system_query"],
+            description=f"query:{query_type}",
+            args={"query_type": query_type},
+            expected_effect=f"{query_type}_retrieved"
+        )
+        
+        plan = Plan(
+            actions=[planned_action],
+            goal_achieved_by="a0",
+            total_actions=1
+        )
+        
+        logging.info(f"GoalPlanner: system_query → abstract action (query:{query_type})")
         
         return PlanResult(status="success", plan=plan)
