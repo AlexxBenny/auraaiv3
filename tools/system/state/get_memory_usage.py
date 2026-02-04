@@ -104,7 +104,7 @@ class GetMemoryUsage(Tool):
                 }
             }
             
-            logging.info(f"Memory usage: {mem.percent}% RAM, {swap.percent}% swap")
+            logging.debug(f"Memory usage: {mem.percent}% RAM, {swap.percent}% swap")
             return result
             
         except Exception as e:

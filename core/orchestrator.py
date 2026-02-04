@@ -167,9 +167,26 @@ class Orchestrator:
         """Fast path for single queries.
         
         Flow: IntentAgent → IntentRouter → pipeline
+        
+        LLM-CENTRIC: IntentAgent may return decision="ask" for clarification.
         """
-        # STEP 2: Intent classification (AUTHORITATIVE)
-        intent_result = self.intent_agent.classify(user_input)
+        # STEP 2: Intent classification (AUTHORITATIVE) - with context for LLM reasoning
+        intent_result = self.intent_agent.classify(user_input, context)
+        
+        # CHECK: LLM decided to ask for clarification
+        decision = intent_result.get("decision", "execute")
+        if decision == "ask":
+            question = intent_result.get("question", "Could you please clarify what you'd like me to do?")
+            logging.info(f"LLM requested clarification: {question}")
+            progress.emit("Need more information...")
+            return {
+                "status": "clarification_needed",
+                "type": "clarification",
+                "question": question,
+                "mode": "single",
+                "reasoning": intent_result.get("reasoning", "")
+            }
+        
         intent = intent_result.get("intent", "unknown")
         confidence = intent_result.get("confidence", 0)
         
@@ -202,8 +219,19 @@ class Orchestrator:
         This is where "open youtube and search nvidia" becomes ONE action.
         """
         try:
-            # STEP 1: Interpret goals semantically
-            meta_goal = self.goal_interpreter.interpret(user_input, context)
+            # STEP 1: Get QC classification with confidence for authority contract
+            qc_result = self.classifier.classify_with_confidence(user_input)
+            logging.info(
+                f"QC: {qc_result['classification']} "
+                f"(confidence={qc_result['confidence']}, method={qc_result['detection_method']})"
+            )
+            
+            # STEP 2: Interpret goals semantically (with QC authority context)
+            meta_goal = self.goal_interpreter.interpret(
+                user_input, 
+                qc_output=qc_result,  # Pass QC for authority contract
+                context=context
+            )
             logging.info(f"GoalInterpreter: {meta_goal.meta_type} ({len(meta_goal.goals)} goal(s))")
             
             # If interpreter says it's actually single, and it's a browser_search,

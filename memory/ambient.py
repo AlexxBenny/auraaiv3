@@ -105,45 +105,92 @@ class AmbientMemory:
             time.sleep(self.POLL_INTERVAL)
     
     def _capture_snapshot(self) -> Dict[str, Any]:
-        """Capture current system state."""
+        """Capture current system state using registered tools.
+        
+        ARCHITECTURAL CHANGE: Uses tools instead of duplicating OS queries.
+        Tools are richer (e.g., battery has time_remaining) and DRY.
+        """
         snapshot = {
             "timestamp": datetime.now().isoformat(),
             "windows": {},
             "processes": [],
-            "system": {}
+            "system": {},
+            "media": {}
         }
         
-        # Active window
+        # Get tool registry (lazy import to avoid circular deps)
         try:
-            import win32gui
-            import win32process
-            import psutil
-            
-            hwnd = win32gui.GetForegroundWindow()
-            if hwnd:
-                title = win32gui.GetWindowText(hwnd)
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                try:
-                    proc = psutil.Process(pid)
+            from tools.registry import get_registry
+            registry = get_registry()
+        except Exception as e:
+            logging.debug(f"Tool registry not available: {e}")
+            return snapshot
+        
+        # === ACTIVE WINDOW (via tool) ===
+        try:
+            window_tool = registry.get("system.state.get_active_window")
+            if window_tool:
+                result = window_tool.execute({})
+                if result.get("status") == "success" and result.get("window"):
+                    window = result["window"]
                     snapshot["windows"]["active"] = {
-                        "title": title,
-                        "process": proc.name(),
-                        "pid": pid,
-                        "hwnd": hwnd
-                    }
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    snapshot["windows"]["active"] = {
-                        "title": title,
-                        "pid": pid,
-                        "hwnd": hwnd
+                        "title": window.get("title", ""),
+                        "process": window.get("process_name", ""),
+                        "pid": window.get("pid"),
+                        "hwnd": window.get("hwnd")
                     }
         except Exception as e:
             logging.debug(f"Window capture failed: {e}")
         
-        # Running processes (top 20 by memory)
+        # === BATTERY (via tool) ===
+        try:
+            battery_tool = registry.get("system.state.get_battery")
+            if battery_tool:
+                result = battery_tool.execute({})
+                if result.get("status") == "success":
+                    snapshot["system"]["battery"] = {
+                        "percent": result.get("percentage"),
+                        "plugged": result.get("plugged_in", False),
+                        "time_remaining": result.get("time_remaining")
+                    }
+        except Exception as e:
+            logging.debug(f"Battery capture failed: {e}")
+        
+        # === MEMORY (via tool) ===
+        try:
+            memory_tool = registry.get("system.state.get_memory_usage")
+            if memory_tool:
+                result = memory_tool.execute({})
+                if result.get("status") == "success":
+                    ram = result.get("ram", {})
+                    snapshot["system"]["memory_percent"] = ram.get("percent_used", 0)
+        except Exception as e:
+            logging.debug(f"Memory capture failed: {e}")
+        
+        # === MEDIA STATE (via tool) ===
+        try:
+            media_tool = registry.get("system.audio.get_media_state")
+            if media_tool:
+                result = media_tool.execute({})
+                if result.get("status") == "success":
+                    snapshot["media"] = {
+                        "active": result.get("active", False),
+                        "playing": result.get("playing", False),
+                        "source": result.get("source")
+                    }
+        except Exception as e:
+            logging.debug(f"Media capture failed: {e}")
+        
+        # === CPU (still direct - no tool exists) ===
         try:
             import psutil
-            
+            snapshot["system"]["cpu_percent"] = psutil.cpu_percent(interval=None)
+        except Exception as e:
+            logging.debug(f"CPU capture failed: {e}")
+        
+        # === RUNNING PROCESSES (still direct - tool would be expensive) ===
+        try:
+            import psutil
             procs = []
             for proc in psutil.process_iter(['pid', 'name', 'memory_info']):
                 try:
@@ -161,24 +208,6 @@ class AmbientMemory:
             snapshot["processes"] = procs[:20]
         except Exception as e:
             logging.debug(f"Process capture failed: {e}")
-        
-        # System state
-        try:
-            import psutil
-            
-            # Battery
-            battery = psutil.sensors_battery()
-            if battery:
-                snapshot["system"]["battery"] = {
-                    "percent": battery.percent,
-                    "plugged": battery.power_plugged
-                }
-            
-            # CPU and memory
-            snapshot["system"]["cpu_percent"] = psutil.cpu_percent(interval=None)
-            snapshot["system"]["memory_percent"] = psutil.virtual_memory().percent
-        except Exception as e:
-            logging.debug(f"System state capture failed: {e}")
         
         return snapshot
     
@@ -211,6 +240,7 @@ class AmbientMemory:
             "battery": system.get("battery", {}),
             "cpu_percent": system.get("cpu_percent", 0),
             "memory_percent": system.get("memory_percent", 0),
+            "media": latest.get("media", {}),  # NEW: Media state
             "snapshot_count": len(self.snapshots)
         }
     

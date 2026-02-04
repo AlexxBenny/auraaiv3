@@ -1,0 +1,185 @@
+{
+  "date": "2026-02-04",
+  "schema_version": 1,
+  "count": 11,
+  "facts": [
+    {
+      "fact_id": "6c5510b1-ce56-4fa1-b9dc-38eb4eb630c1",
+      "timestamp": "2026-02-04T01:50:05.228950",
+      "tool": "system.audio.media_play_pause",
+      "query": "pause music",
+      "facts": {
+        "tool": "system.audio.media_play_pause",
+        "action": "media_play_pause"
+      },
+      "fact_keys": [
+        "action",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "ac3bcb59-aa41-4d21-a442-6fa0be8498c8",
+      "timestamp": "2026-02-04T01:50:39.327202",
+      "tool": "system.apps.launch.shell",
+      "query": "play song",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "4ed7b714-b892-4e3c-9d82-bbb046851d58",
+      "timestamp": "2026-02-04T01:58:42.210019",
+      "tool": "system.apps.launch.shell",
+      "query": "open brave",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "894a42be-8c5b-4349-9639-d51f16760124",
+      "timestamp": "2026-02-04T01:59:25.849464",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome and search one direction",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "c100561f-33ee-4e1a-b14a-1e5d00467a59",
+      "timestamp": "2026-02-04T02:00:11.200152",
+      "tool": "system.apps.launch.shell",
+      "query": "search one direction in youtube",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "5d155c4e-8110-46dd-b83f-e9633deb8f6e",
+      "timestamp": "2026-02-04T02:02:56.265580",
+      "tool": "files.create_folder",
+      "query": "create a folder named space",
+      "facts": {
+        "status": "success",
+        "path": "space",
+        "already_existed": true
+      },
+      "fact_keys": [
+        "already_existed",
+        "path",
+        "status"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "0833f751-3b23-4f2f-aceb-5bb0f4dbcacf",
+      "timestamp": "2026-02-04T02:05:00.958950",
+      "tool": "files.create_folder",
+      "query": "create a folder named space",
+      "facts": {
+        "status": "success",
+        "path": "space",
+        "already_existed": false,
+        "created_parents": true
+      },
+      "fact_keys": [
+        "already_existed",
+        "created_parents",
+        "path",
+        "status"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "d9b8b983-983b-48c7-8d75-88b5e26da123",
+      "timestamp": "2026-02-04T02:07:06.832372",
+      "tool": "system.state.get_active_window",
+      "query": "what is the system status",
+      "facts": {
+        "tool": "system.state.get_active_window"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "e807975b-d617-4b29-9e07-287dcae264e8",
+      "timestamp": "2026-02-04T02:08:07.169268",
+      "tool": "system.state.get_battery",
+      "query": "what is the battery status",
+      "facts": {
+        "tool": "system.state.get_battery",
+        "battery_percent": 79,
+        "plugged_in": true
+      },
+      "fact_keys": [
+        "battery_percent",
+        "plugged_in",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "1c47bc41-2c0c-47e1-847c-5f6ed85d0221",
+      "timestamp": "2026-02-04T10:23:41.675415",
+      "tool": "system.audio.media_play_pause",
+      "query": "pause music",
+      "facts": {
+        "tool": "system.audio.media_play_pause",
+        "action": "media_play_pause"
+      },
+      "fact_keys": [
+        "action",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "a88c9780-7a4f-4f27-8268-86f715ba507a",
+      "timestamp": "2026-02-04T10:24:26.041202",
+      "tool": "system.input.mouse.move",
+      "query": "play music",
+      "facts": {
+        "status": "success",
+        "x": 100,
+        "y": 200,
+        "context_verified": false
+      },
+      "fact_keys": [
+        "context_verified",
+        "status",
+        "x",
+        "y"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

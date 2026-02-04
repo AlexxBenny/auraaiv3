@@ -224,37 +224,56 @@ Return JSON with:
                 return True
         return False
     
-    def classify_with_reasoning(self, user_input: str) -> Dict[str, Any]:
-        """Full classification with reasoning (for debugging).
+    def classify_with_confidence(self, user_input: str) -> Dict[str, Any]:
+        """Classify with confidence for QC-LLM authority contract.
+        
+        AUTHORITY CONTRACT:
+        - Syntactic patterns → high confidence (0.90-0.95)
+        - LLM fallback → lower confidence (0.75)
+        
+        When confidence ≥ 0.85, GoalInterpreter MUST respect topology.
         
         Returns:
             {
                 "classification": "single" | "multi",
+                "confidence": 0.0-1.0,
                 "reasoning": "...",
                 "detection_method": "syntactic" | "llm"
             }
         """
-        # Check syntactic patterns first
+        # Check syntactic patterns first (high confidence)
         if self._has_dependency_pattern(user_input):
+            logging.info(f"QC: '{user_input[:40]}...' → multi (syntactic, conf=0.95)")
             return {
                 "classification": "multi",
+                "confidence": 0.95,
                 "reasoning": "Syntactic dependency pattern detected",
                 "detection_method": "syntactic"
             }
         
         if self._has_independent_multi_pattern(user_input):
+            logging.info(f"QC: '{user_input[:40]}...' → multi (syntactic, conf=0.90)")
             return {
                 "classification": "multi",
+                "confidence": 0.90,
                 "reasoning": "Independent multi-goal pattern detected",
                 "detection_method": "syntactic"
             }
         
-        # Fall through to LLM
-        result = {"detection_method": "llm"}
+        # LLM fallback (lower confidence)
         classification = self.classify(user_input)
-        result["classification"] = classification
-        result["reasoning"] = "LLM semantic classification"
-        return result
+        logging.info(f"QC: '{user_input[:40]}...' → {classification} (llm, conf=0.75)")
+        return {
+            "classification": classification,
+            "confidence": 0.75,
+            "reasoning": "LLM semantic classification",
+            "detection_method": "llm"
+        }
+    
+    # Backward compat
+    def classify_with_reasoning(self, user_input: str) -> Dict[str, Any]:
+        """Deprecated: Use classify_with_confidence instead."""
+        return self.classify_with_confidence(user_input)
 
 
 # Backward compatibility alias

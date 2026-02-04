@@ -7,6 +7,7 @@
 3. **Tools are deterministic** - No AI inside tools
 4. **Goal-oriented reasoning** - Semantic goals, not verb counting
 5. **Schema validation** - All LLM outputs validated
+6. **LLM-centric decisions** - Context surfaces to LLM, not coded as rules
 
 ---
 
@@ -33,12 +34,19 @@ Result
 
 ## Component Responsibilities
 
+### Context Layer (`core/`)
+
+| Component | Responsibility |
+|-----------|----------------|
+| **ContextSnapshot** | Format ambient state for LLM consumption |
+| **AmbientMemory** | Background system state tracking |
+
 ### Routing Layer (`agents/`)
 
 | Component | Responsibility |
 |-----------|----------------|
-| **QueryClassifier** | Semantic routing (single vs multi goals) |
-| **IntentAgent** | Intent classification for single path |
+| **QueryClassifier** | Syntactic routing (single vs multi) - NO context |
+| **IntentAgent** | Intent classification WITH context - decides act vs ask |
 
 ### Reasoning Layer (`agents/`)
 

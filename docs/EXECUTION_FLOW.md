@@ -30,12 +30,12 @@ QueryClassifier.classify()
 ```
 Orchestrator.process()
     ├─► SessionContext.start_task()
-    ├─► _get_context() → includes _session_context for PathResolver
-    ├─► QueryClassifier.classify()
+    ├─► _get_context() → AmbientMemory state for LLM reasoning
+    ├─► QueryClassifier.classify() (syntactic, NO context)
     │       └─► Returns "single" or "multi"
     │
-    ├─► IF "single": _process_single()
-    └─► IF "multi":  _process_goal()
+    ├─► IF "single": _process_single(context) → IntentAgent WITH context
+    └─► IF "multi":  _process_goal(context)
 ```
 
 ---
@@ -46,10 +46,13 @@ Orchestrator.process()
 **Examples**: "open chrome", "what time is it", "take a screenshot"
 
 ```
-_process_single()
+_process_single(context)
     │
-    ├─► IntentAgent.analyze_simple()
-    │       └─► Returns {intent, confidence, args}
+    ├─► IntentAgent.classify(user_input, context)  ◄── LLM-CENTRIC
+    │       ├─► ContextSnapshot.build(context) injected into prompt
+    │       └─► Returns {decision, intent, confidence, question?}
+    │
+    ├─► IF decision == "ask": RETURN clarification question to user
     │
     ├─► IntentRouter.route(intent_result)
     │       └─► Dispatches to registered pipeline
@@ -150,7 +153,7 @@ _process_goal()
 | File | Class | Responsibility |
 |------|-------|----------------|
 | [`query_classifier.py`](file:///d:/aura/AURA/agents/query_classifier.py) | `QueryClassifier` | Classify "single" vs "multi" |
-| [`intent_agent.py`](file:///d:/aura/AURA/agents/intent_agent.py) | `IntentAgent` | Extract intent from single queries |
+| [`intent_agent.py`](file:///d:/aura/AURA/agents/intent_agent.py) | `IntentAgent` | Context-aware intent + act vs ask |
 | [`goal_interpreter.py`](file:///d:/aura/AURA/agents/goal_interpreter.py) | `GoalInterpreter` | Extract semantic goals from multi queries |
 | [`goal_planner.py`](file:///d:/aura/AURA/agents/goal_planner.py) | `GoalPlanner` | Plan single goal → executable actions |
 | [`goal_orchestrator.py`](file:///d:/aura/AURA/agents/goal_orchestrator.py) | `GoalOrchestrator` | Combine multiple goal plans |
@@ -162,6 +165,7 @@ _process_goal()
 | File | Class | Responsibility |
 |------|-------|----------------|
 | [`orchestrator.py`](file:///d:/aura/AURA/core/orchestrator.py) | `Orchestrator` | Main entry point, routing |
+| [`context_snapshot.py`](file:///d:/aura/AURA/core/context_snapshot.py) | `ContextSnapshot` | Format ambient state for LLM |
 | [`intent_router.py`](file:///d:/aura/AURA/core/intent_router.py) | `IntentRouter` | Route intents to pipelines |
 | [`tool_resolver.py`](file:///d:/aura/AURA/core/tool_resolver.py) | `ToolResolver` | Map intents to tools |
 | [`path_resolver.py`](file:///d:/aura/AURA/core/path_resolver.py) | `PathResolver` | Centralized path resolution |

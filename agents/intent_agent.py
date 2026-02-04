@@ -3,13 +3,19 @@
 CRITICAL: This is the FIRST gate in the pipeline.
 Wrong classification = wrong tools = wrong execution.
 
+LLM-CENTRIC ARCHITECTURE:
+- Receives system state context via ContextSnapshot
+- Decides whether to act or ask for clarification
+- Uses context to resolve ambiguity (e.g., "play" when media is paused)
+
 Uses mistral:7b for better reasoning.
 Includes 2-3 few-shot examples per intent for reliability.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from models.model_manager import get_model_manager
+from core.context_snapshot import ContextSnapshot
 
 
 class IntentAgent:
@@ -24,6 +30,11 @@ class IntentAgent:
     INTENT_SCHEMA = {
         "type": "object",
         "properties": {
+            "decision": {
+                "type": "string",
+                "enum": ["execute", "ask"],
+                "description": "Execute the intent or ask for clarification"
+            },
             "intent": {
                 "type": "string",
                 "enum": [
@@ -52,9 +63,13 @@ class IntentAgent:
             "reasoning": {
                 "type": "string",
                 "description": "Brief explanation of classification"
+            },
+            "question": {
+                "type": "string",
+                "description": "Clarification question if decision is 'ask'"
             }
         },
-        "required": ["intent", "confidence", "reasoning"]
+        "required": ["decision", "intent", "confidence", "reasoning"]
     }
     
     # Few-shot examples for reliable classification
@@ -272,22 +287,41 @@ Examples that MUST be window_management:
         self.model = get_model_manager().get_planner_model()
         logging.info("IntentAgent initialized with planner model for reliability")
     
-    def classify(self, user_input: str) -> Dict[str, Any]:
-        """Classify user intent with few-shot examples
+    def classify(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Classify user intent with few-shot examples and system context.
+        
+        UNIFIED DECISION CONTRACT:
+        Returns decision="execute" to proceed, or decision="ask" for clarification.
         
         Args:
             user_input: Raw user text
+            context: Optional system state from AmbientMemory
             
         Returns:
             {
+                "decision": "execute" | "ask",
                 "intent": "screen_capture",
                 "confidence": 0.95,
-                "reasoning": "User wants to capture the screen"
+                "reasoning": "User wants to capture the screen",
+                "question": "..."  # Only if decision == "ask"
             }
         """
+        # Build context snapshot for LLM
+        context_section = ""
+        if context:
+            context_str = ContextSnapshot.build(context)
+            context_section = f"""## CURRENT SYSTEM STATE
+{context_str}
+
+"""
+        
         prompt = f"""You are an intent classifier for a desktop assistant.
 
-Your job: Classify the user's intent into ONE category.
+{context_section}Your job: Classify the user's intent into ONE category.
+
+Use the system state to resolve ambiguity when possible.
+Prefer acting without asking if the intent is unambiguous given the context.
+If truly ambiguous and you cannot determine the user's intent, set decision to "ask".
 
 {self.FEW_SHOT_EXAMPLES}
 
@@ -297,9 +331,11 @@ NOW CLASSIFY THIS INPUT:
 User: "{user_input}"
 
 Respond with JSON:
+- decision: "execute" if you can determine the intent, "ask" if clarification needed
 - intent: exactly one of the enum values
 - confidence: 0.0 to 1.0
 - reasoning: brief explanation (1 sentence)
+- question: (only if decision is "ask") the clarification question to ask
 
 REMEMBER:
 - "screenshot" = screen_capture, NOT application_launch
@@ -310,19 +346,27 @@ REMEMBER:
         try:
             result = self.model.generate(prompt, schema=self.INTENT_SCHEMA)
             
-            # Ensure expected types
+            # Ensure expected types and defaults
+            if "decision" not in result:
+                result["decision"] = "execute"  # Default to execute for backward compatibility
             if "confidence" in result:
                 result["confidence"] = float(result["confidence"])
             if "reasoning" not in result:
                 result["reasoning"] = "No reasoning provided"
             
-            logging.info(f"Intent classified: {result['intent']} ({result['confidence']:.2f})")
+            decision = result.get("decision", "execute")
+            logging.info(f"Intent classified: {result['intent']} ({result['confidence']:.2f}) decision={decision}")
             logging.debug(f"Reasoning: {result.get('reasoning', 'N/A')}")
+            
+            if decision == "ask":
+                logging.info(f"Clarification requested: {result.get('question', 'No question provided')}")
+            
             return result
             
         except Exception as e:
             logging.error(f"Intent classification failed: {e}")
             return {
+                "decision": "execute",
                 "intent": "unknown",
                 "confidence": 0.0,
                 "reasoning": f"Classification error: {str(e)}"

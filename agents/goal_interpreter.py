@@ -99,6 +99,22 @@ class MetaGoal:
 
 
 # =============================================================================
+# TOPOLOGY VIOLATION ERROR
+# =============================================================================
+
+class TopologyViolationError(Exception):
+    """Raised when LLM violates QC authority contract.
+    
+    INVARIANT: When QC confidence >= 0.85, GI MUST respect topology:
+    - QC says "single" → GI must return exactly 1 goal
+    - QC says "multi" → GI must return ≥ 2 goals
+    
+    This error indicates a contract violation that should NOT be auto-corrected.
+    """
+    pass
+
+
+# =============================================================================
 # GOAL INTERPRETER
 # =============================================================================
 
@@ -268,6 +284,51 @@ User: "open youtube and search nvidia"
         self.model = get_model_manager().get_planner_model()
         logging.info("GoalInterpreter initialized (semantic goal extraction)")
     
+    def _enforce_topology(
+        self, 
+        qc_output: Optional[Dict[str, Any]], 
+        goals: List[Dict[str, Any]]
+    ) -> None:
+        """Enforce QC authority contract.
+        
+        AUTHORITY CONTRACT:
+        - When confidence >= 0.85, LLM MUST respect QC topology
+        - QC="single" → exactly 1 goal
+        - QC="multi" → at least 2 goals
+        
+        FAIL FAST on violations. Do NOT auto-correct.
+        
+        Args:
+            qc_output: QueryClassifier result with classification + confidence
+            goals: Goals extracted by LLM
+            
+        Raises:
+            TopologyViolationError: When LLM contradicts high-confidence QC
+        """
+        if not qc_output:
+            return  # No QC output, LLM is free
+        
+        confidence = qc_output.get("confidence", 0.0)
+        if confidence < 0.85:
+            return  # Low confidence, LLM is free to reason
+        
+        qc_class = qc_output.get("classification", "unknown")
+        goal_count = len(goals)
+        
+        if qc_class == "single" and goal_count != 1:
+            raise TopologyViolationError(
+                f"QC authority violated: QC='single' (confidence={confidence}) "
+                f"but LLM returned {goal_count} goal(s). "
+                f"High-confidence QC cannot be overridden."
+            )
+        
+        if qc_class == "multi" and goal_count < 2:
+            raise TopologyViolationError(
+                f"QC authority violated: QC='multi' (confidence={confidence}) "
+                f"but LLM returned only {goal_count} goal(s). "
+                f"High-confidence QC requires multi-goal output."
+            )
+    
     def _detect_explicit_anchor(self, user_input: str, goal_idx: int) -> Optional[str]:
         """Detect explicit location anchor from user's LINGUISTIC input.
         
@@ -421,20 +482,45 @@ User: "open youtube and search nvidia"
             for idx, parents in corrected.items()
         ]
     
-    def interpret(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> MetaGoal:
+    def interpret(
+        self, 
+        user_input: str, 
+        qc_output: Optional[Dict[str, Any]] = None,
+        context: Optional[Dict[str, Any]] = None
+    ) -> MetaGoal:
         """Extract semantic goals from user input.
         
         Args:
             user_input: Raw user command
+            qc_output: QueryClassifier output with classification + confidence
             context: Optional world state (read-only)
             
         Returns:
             MetaGoal with structured goals
         """
+        # Build QC authority context for prompt
+        qc_context = ""
+        if qc_output:
+            qc_class = qc_output.get("classification", "unknown")
+            qc_conf = qc_output.get("confidence", 0.5)
+            qc_reason = qc_output.get("reasoning", "")
+            qc_context = f"""
+## QUERY CLASSIFIER OUTPUT (AUTHORITATIVE)
+Classification: {qc_class}
+Confidence: {qc_conf}
+Reasoning: {qc_reason}
+
+AUTHORITY RULES:
+- If confidence >= 0.85, you MUST respect the classification
+- "single" → return exactly 1 goal
+- "multi" → return 2+ goals
+- Do NOT contradict high-confidence QC judgments
+"""
+        
         prompt = f"""You are a semantic goal interpreter.
 
 Your job: Understand what the user is trying to achieve and extract structured goals.
-
+{qc_context}
 {self.FEW_SHOT_EXAMPLES}
 
 ---
@@ -448,6 +534,7 @@ RULES:
 3. dependent_multi = later goals need earlier goals to complete first
 4. Use correct goal_type from the closed set
 5. If goals are related to same context, consider if they're really ONE goal
+6. CRITICAL: Targets must be RAW names only, NOT full paths
 
 Return JSON with:
 - meta_type: "single" | "independent_multi" | "dependent_multi"
@@ -463,6 +550,9 @@ Return JSON with:
             goals_data = result.get("goals", [])
             deps_data = result.get("dependencies", [])
             reasoning = result.get("reasoning", "")
+            
+            # AUTHORITY CONTRACT: Enforce QC topology when confident
+            self._enforce_topology(qc_output, goals_data)
             
             # FIX: Correct container scope for dependent_multi goals
             # LLMs often bind "inside it" to first container instead of most recent
