@@ -75,6 +75,12 @@ class Assistant:
         status = result.get("status", "unknown")
         result_type = result.get("type", "unknown")
         
+        # Clarification response (decision=ask terminal state)
+        if result_type == "clarification" or status == "clarification_needed":
+            question = result.get("question", result.get("response", "Could you please clarify?"))
+            print(f"\n❓ {question}")
+            return
+        
         # Information response
         if result_type == "information":
             response = result.get("response", "No response provided")

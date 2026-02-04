@@ -1,15 +1,15 @@
-"""Intent Agent - Classifies user intent with few-shot examples
+"""Intent Agent - Strategy-first reasoning with context awareness
 
 CRITICAL: This is the FIRST gate in the pipeline.
-Wrong classification = wrong tools = wrong execution.
+Wrong strategy = wrong execution.
 
-LLM-CENTRIC ARCHITECTURE:
+STRATEGY-FIRST ARCHITECTURE:
 - Receives system state context via ContextSnapshot
-- Decides whether to act or ask for clarification
-- Uses context to resolve ambiguity (e.g., "play" when media is paused)
+- Chooses the BEST STRATEGY given context (not just a category)
+- Derives intent from strategy for backward-compatible routing
+- Intent is a routing artifact, strategy is the decision
 
 Uses mistral:7b for better reasoning.
-Includes 2-3 few-shot examples per intent for reliability.
 """
 
 import logging
@@ -18,280 +18,254 @@ from models.model_manager import get_model_manager
 from core.context_snapshot import ContextSnapshot
 
 
-class IntentAgent:
-    """Classifies user intent into 10 precise categories
+# =============================================================================
+# STRATEGY → INTENT MAPPING (Backward Compatibility)
+# =============================================================================
+# Strategies are verbs (what to do), intents are categories (where to route)
+# This mapping allows downstream code to remain unchanged.
+
+STRATEGY_TO_INTENT = {
+    # Media control
+    "resume_media": "system_control",
+    "pause_media": "system_control",
+    "control_volume": "system_control",
+    "control_audio": "system_control",
     
-    Design principles:
-    - Every existing tool must map to exactly one intent
-    - Few-shot examples prevent misclassification
-    - Output includes reasoning for debugging
+    # Application lifecycle
+    "launch_app": "application_launch",
+    "focus_app": "application_control",
+    "close_app": "application_control",
+    
+    # Window management
+    "manage_window": "window_management",
+    "snap_window": "window_management",
+    "switch_desktop": "window_management",
+    
+    # System queries (read-only)
+    "query_time": "system_query",
+    "query_battery": "system_query",
+    "query_system": "system_query",
+    
+    # System control (write)
+    "control_display": "system_control",
+    "control_power": "system_control",
+    
+    # Screen operations
+    "capture_screen": "screen_capture",
+    "find_on_screen": "screen_perception",
+    
+    # Input
+    "send_input": "input_control",
+    
+    # Files
+    "file_operation": "file_operation",
+    
+    # Browser
+    "open_url": "browser_control",
+    "browser_action": "browser_control",
+    
+    # Clipboard
+    "clipboard_action": "clipboard_operation",
+    
+    # Memory
+    "recall_memory": "memory_recall",
+    
+    # Office
+    "office_action": "office_operation",
+    
+    # Meta-strategies
+    "ask_user": None,  # Terminal state - need more info
+    "out_of_scope": None,  # Terminal state - can't do this
+    "answer_question": "information_query",
+}
+
+
+class IntentAgent:
+    """Strategy-first reasoning agent.
+    
+    ARCHITECTURE:
+    - Chooses STRATEGY based on user input + context
+    - Derives INTENT from strategy for routing
+    - Downstream code sees intent, reasoning happens here
+    
+    INVARIANTS:
+    - Strategy is REQUIRED in output
+    - Intent is DERIVED, never chosen by LLM
+    - Context rules are HARD CONSTRAINTS
     """
     
+    # Strategy-first schema - strategy is REQUIRED, intent is DERIVED
     INTENT_SCHEMA = {
         "type": "object",
         "properties": {
-            "decision": {
+            # PRIMARY: Strategy is the decision
+            "strategy": {
                 "type": "string",
-                "enum": ["execute", "ask"],
-                "description": "Execute the intent or ask for clarification"
+                "enum": list(STRATEGY_TO_INTENT.keys()),
+                "description": "The best action strategy given context"
             },
-            "intent": {
+            "target": {
                 "type": "string",
-                "enum": [
-                    "application_launch",      # Open/start applications
-                    "application_control",     # Focus, close, switch windows
-                    "window_management",       # Snap, minimize, maximize, switch windows, virtual desktops
-                    "system_query",            # Time, battery, system state (read-only)
-                    "system_control",          # Volume, brightness, lock, power (actions)
-                    "screen_capture",          # Screenshots, screen recording
-                    "screen_perception",       # OCR, find text on screen
-                    "input_control",           # Keyboard, mouse actions
-                    "file_operation",          # Create, read, write, delete files
-                    "browser_control",         # Web navigation, tabs
-                    "office_operation",        # Excel, Word, PowerPoint
-                    "clipboard_operation",     # Copy, paste, clipboard
-                    "memory_recall",           # Asking about previous queries/facts
-                    "information_query",       # Questions answerable by LLM
-                    "unknown"                  # Cannot determine
-                ]
+                "description": "Target of the action (app name, file path, etc.)"
+            },
+            # DELIBERATION TRACE (for logging/debugging)
+            "candidates": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of 2-3 candidate strategies considered"
+            },
+            "eliminated": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Strategies eliminated due to context (with reason)"
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "WHY this strategy was chosen after elimination"
             },
             "confidence": {
                 "type": "number",
                 "minimum": 0,
                 "maximum": 1
             },
-            "reasoning": {
-                "type": "string",
-                "description": "Brief explanation of classification"
-            },
+            # ONLY for ask_user strategy
             "question": {
                 "type": "string",
-                "description": "Clarification question if decision is 'ask'"
+                "description": "Clarification question (only if strategy is ask_user)"
             }
         },
-        "required": ["decision", "intent", "confidence", "reasoning"]
+        "required": ["strategy", "reasoning", "confidence"]
     }
     
-    # Few-shot examples for reliable classification
+    # Strategy-first few-shot examples with context-dependent cases
     FEW_SHOT_EXAMPLES = """
-## FEW-SHOT EXAMPLES (learn from these):
+## STRATEGY EXAMPLES (learn the pattern)
 
-### application_launch
+### CONTEXT-DEPENDENT STRATEGIES (CRITICAL - study these carefully)
+
+# When media is PAUSED, "play" means RESUME, not launch
+User: "play music"
+Context: media: paused (Spotify.exe)
+→ {"strategy": "resume_media", "target": "spotify", "confidence": 0.95, "reasoning": "Media is paused, resuming playback"}
+
+# When media is INACTIVE, "play" means LAUNCH
+User: "play music"  
+Context: media: inactive
+→ {"strategy": "launch_app", "target": "spotify", "confidence": 0.85, "reasoning": "No active media, launching player"}
+
+# When app is RUNNING, "open" means FOCUS, not launch
 User: "open notepad"
-→ {"intent": "application_launch", "confidence": 0.95, "reasoning": "User wants to start an application"}
+Context: focus: notepad.exe - Untitled
+→ {"strategy": "focus_app", "target": "notepad", "confidence": 0.95, "reasoning": "Notepad already running, bringing to focus"}
 
+# When app is NOT running, "open" means LAUNCH
+User: "open notepad"
+Context: focus: chrome.exe - Google
+→ {"strategy": "launch_app", "target": "notepad", "confidence": 0.95, "reasoning": "Notepad not running, launching it"}
+
+### MEDIA STRATEGIES
+User: "pause the music"
+→ {"strategy": "pause_media", "confidence": 0.95, "reasoning": "Explicit pause request"}
+
+User: "set volume to 50"
+→ {"strategy": "control_volume", "target": "50", "confidence": 0.95, "reasoning": "Volume control action"}
+
+User: "mute"
+→ {"strategy": "control_audio", "target": "mute", "confidence": 0.95, "reasoning": "Audio mute action"}
+
+### APPLICATION STRATEGIES
 User: "launch spotify"
-→ {"intent": "application_launch", "confidence": 0.95, "reasoning": "Launching an app by name"}
-
-User: "start chrome"
-→ {"intent": "application_launch", "confidence": 0.95, "reasoning": "Starting a browser application"}
-
-### application_control (NOT launch!)
-User: "focus on notepad"
-→ {"intent": "application_control", "confidence": 0.95, "reasoning": "Switching to existing window, not launching"}
+→ {"strategy": "launch_app", "target": "spotify", "confidence": 0.95, "reasoning": "Explicit launch request"}
 
 User: "close this window"
-→ {"intent": "application_control", "confidence": 0.95, "reasoning": "Closing existing window"}
+→ {"strategy": "close_app", "confidence": 0.90, "reasoning": "Close current window"}
 
-User: "minimize spotify"
-→ {"intent": "application_control", "confidence": 0.90, "reasoning": "Window management, not launch"}
+User: "focus on chrome"
+→ {"strategy": "focus_app", "target": "chrome", "confidence": 0.95, "reasoning": "Bring existing window to front"}
 
-### window_management (NEW - window geometry/arrangement)
+### WINDOW STRATEGIES
 User: "snap this window to the left"
-→ {"intent": "window_management", "confidence": 0.95, "reasoning": "Window positioning/snapping"}
+→ {"strategy": "snap_window", "target": "left", "confidence": 0.95, "reasoning": "Window positioning"}
 
-User: "minimize all windows"
-→ {"intent": "window_management", "confidence": 0.95, "reasoning": "Desktop-level window action"}
+User: "maximize this"
+→ {"strategy": "manage_window", "target": "maximize", "confidence": 0.95, "reasoning": "Window geometry change"}
 
-User: "switch to the next window"
-→ {"intent": "window_management", "confidence": 0.90, "reasoning": "Alt+Tab style window switching"}
+User: "move to desktop 2"
+→ {"strategy": "switch_desktop", "target": "2", "confidence": 0.95, "reasoning": "Virtual desktop movement"}
 
-User: "open task view"
-→ {"intent": "window_management", "confidence": 0.95, "reasoning": "Virtual desktop overview"}
-
-User: "move this to desktop 2"
-→ {"intent": "window_management", "confidence": 0.95, "reasoning": "Virtual desktop window movement"}
-
-User: "maximize this window"
-→ {"intent": "window_management", "confidence": 0.95, "reasoning": "Window geometry change"}
-
-User: "snap right"
-→ {"intent": "window_management", "confidence": 0.95, "reasoning": "Window snapping action"}
-
-### system_query (read-only state queries)
+### SYSTEM QUERY STRATEGIES (read-only)
 User: "what time is it"
-→ {"intent": "system_query", "confidence": 0.95, "reasoning": "Asking for system clock, read-only"}
-
-User: "what year is this"
-→ {"intent": "system_query", "confidence": 0.95, "reasoning": "Asking for current date/year, system tool handles this"}
-
-User: "what's the date today"
-→ {"intent": "system_query", "confidence": 0.95, "reasoning": "Asking for current date, read-only system query"}
-
-User: "what day is it"
-→ {"intent": "system_query", "confidence": 0.95, "reasoning": "Asking for day of week, system datetime query"}
+→ {"strategy": "query_time", "confidence": 0.95, "reasoning": "System clock query, no action needed"}
 
 User: "what's my battery level"
-→ {"intent": "system_query", "confidence": 0.95, "reasoning": "System state query, read-only"}
+→ {"strategy": "query_battery", "confidence": 0.95, "reasoning": "System state query"}
 
-User: "how much disk space do I have"
-→ {"intent": "system_query", "confidence": 0.90, "reasoning": "System resource query, read-only"}
-
-User: "what is the current volume"
-→ {"intent": "system_query", "confidence": 0.90, "reasoning": "Querying audio state, not changing it"}
-
-### system_control (NOT system_query - these CHANGE system state!)
-User: "set volume to 50"
-→ {"intent": "system_control", "confidence": 0.95, "reasoning": "Changing system volume, this is an ACTION"}
-
-User: "mute the audio"
-→ {"intent": "system_control", "confidence": 0.95, "reasoning": "Changing audio state, not querying"}
-
+### SYSTEM CONTROL STRATEGIES (write)
 User: "set brightness to 80"
-→ {"intent": "system_control", "confidence": 0.95, "reasoning": "Changing display brightness"}
+→ {"strategy": "control_display", "target": "80", "confidence": 0.95, "reasoning": "Display brightness change"}
 
 User: "lock my computer"
-→ {"intent": "system_control", "confidence": 0.95, "reasoning": "Power/security action"}
+→ {"strategy": "control_power", "target": "lock", "confidence": 0.95, "reasoning": "Power/security action"}
 
-User: "turn on night light"
-→ {"intent": "system_control", "confidence": 0.90, "reasoning": "Changing display settings"}
-
-### clipboard_operation
-User: "copy hello to clipboard"
-→ {"intent": "clipboard_operation", "confidence": 0.95, "reasoning": "Clipboard write operation"}
-
-User: "what's in my clipboard"
-→ {"intent": "clipboard_operation", "confidence": 0.90, "reasoning": "Clipboard read operation"}
-
-User: "paste this text"
-→ {"intent": "clipboard_operation", "confidence": 0.90, "reasoning": "Clipboard paste operation"}
-
-### memory_recall (NEW - asking about PREVIOUS queries)
-User: "what was my RAM usage earlier"
-→ {"intent": "memory_recall", "confidence": 0.95, "reasoning": "Asking about previously queried information"}
-
-User: "what did I check before"
-→ {"intent": "memory_recall", "confidence": 0.90, "reasoning": "Recalling previous system queries"}
-
-User: "what was my battery level earlier"
-→ {"intent": "memory_recall", "confidence": 0.95, "reasoning": "Asking about previous battery check"}
-
-User: "what did I ask you about disk space"
-→ {"intent": "memory_recall", "confidence": 0.90, "reasoning": "Recalling previous disk query"}
-
-
-### screen_capture (NOT application_launch!)
+### SCREEN STRATEGIES
 User: "take a screenshot"
-→ {"intent": "screen_capture", "confidence": 0.98, "reasoning": "Capturing screen, NOT launching screenshot app"}
+→ {"strategy": "capture_screen", "confidence": 0.95, "reasoning": "Screen capture action"}
 
-User: "capture my screen"
-→ {"intent": "screen_capture", "confidence": 0.95, "reasoning": "Screen capture action"}
+User: "find the submit button on screen"
+→ {"strategy": "find_on_screen", "target": "submit button", "confidence": 0.90, "reasoning": "OCR/visual search"}
 
-User: "screenshot this"
-→ {"intent": "screen_capture", "confidence": 0.95, "reasoning": "Taking screenshot"}
-
-### screen_perception
-User: "find the submit button"
-→ {"intent": "screen_perception", "confidence": 0.95, "reasoning": "Looking for UI element on screen"}
-
-User: "where is the login text"
-→ {"intent": "screen_perception", "confidence": 0.90, "reasoning": "OCR/visual search needed"}
-
-### input_control
-User: "type hello world"
-→ {"intent": "input_control", "confidence": 0.95, "reasoning": "Keyboard input action"}
-
-User: "click on the file menu"
-→ {"intent": "input_control", "confidence": 0.90, "reasoning": "Mouse click action"}
-
-User: "press enter"
-→ {"intent": "input_control", "confidence": 0.95, "reasoning": "Key press action"}
-
-### file_operation
+### FILE STRATEGIES
 User: "create a file called notes.txt"
-→ {"intent": "file_operation", "confidence": 0.95, "reasoning": "File creation"}
+→ {"strategy": "file_operation", "target": "notes.txt", "confidence": 0.95, "reasoning": "File creation"}
 
-User: "delete the old logs"
-→ {"intent": "file_operation", "confidence": 0.90, "reasoning": "File deletion"}
+### INPUT STRATEGIES
+User: "type hello world"
+→ {"strategy": "send_input", "target": "hello world", "confidence": 0.95, "reasoning": "Keyboard input"}
 
-User: "read the config file"
-→ {"intent": "file_operation", "confidence": 0.90, "reasoning": "File reading"}
-
-User: "list files in my downloads"
-→ {"intent": "file_operation", "confidence": 0.95, "reasoning": "Directory listing"}
-
-User: "move notes.txt to documents"
-→ {"intent": "file_operation", "confidence": 0.95, "reasoning": "File move operation"}
-
-User: "copy config.json to backup folder"
-→ {"intent": "file_operation", "confidence": 0.95, "reasoning": "File copy operation"}
-
-User: "rename todo.txt to done.txt"
-→ {"intent": "file_operation", "confidence": 0.95, "reasoning": "File rename"}
-
-User: "create a folder called projects and put a readme.txt inside"
-→ {"intent": "file_operation", "confidence": 0.95, "reasoning": "Multi-step: folder + file creation"}
-
-User: "what's in the downloads folder"
-→ {"intent": "file_operation", "confidence": 0.90, "reasoning": "Directory listing query"}
-
-### browser_control
-User: "open chrome"
-→ {"intent": "browser_control", "confidence": 0.95, "reasoning": "Browser launch"}
-
+### BROWSER STRATEGIES
 User: "open google.com"
-→ {"intent": "browser_control", "confidence": 0.90, "reasoning": "Web navigation"}
+→ {"strategy": "open_url", "target": "google.com", "confidence": 0.95, "reasoning": "Web navigation"}
 
-User: "close this tab"
-→ {"intent": "browser_control", "confidence": 0.85, "reasoning": "Browser tab control"}
-
-### office_operation
-User: "write hello in cell A1"
-→ {"intent": "office_operation", "confidence": 0.95, "reasoning": "Excel operation"}
-
-User: "format this text as bold"
-→ {"intent": "office_operation", "confidence": 0.85, "reasoning": "Word formatting"}
-
-### information_query (ONLY if LLM can answer without tools)
+### KNOWLEDGE STRATEGIES
 User: "what is the capital of France"
-→ {"intent": "information_query", "confidence": 0.95, "reasoning": "General knowledge, no tool needed"}
+→ {"strategy": "answer_question", "confidence": 0.95, "reasoning": "General knowledge, no tool needed"}
 
-User: "explain quantum physics"
-→ {"intent": "information_query", "confidence": 0.95, "reasoning": "Knowledge question, LLM can answer"}
+### ASK USER STRATEGY (when truly ambiguous)
+User: "do the thing"
+→ {"strategy": "ask_user", "question": "Could you please specify what you'd like me to do?", "confidence": 0.50, "reasoning": "Request is too ambiguous"}
 
-User: "how do I use Excel formulas"
-→ {"intent": "information_query", "confidence": 0.90, "reasoning": "Asking for explanation, not action"}
+---
 
-### CRITICAL DISTINCTIONS:
-- "take a screenshot" = screen_capture (NOT application_launch!)
-- "what time is it" = system_query (NOT information_query - needs system clock)
-- "focus notepad" = application_control (NOT application_launch - window exists)
-- "open google.com" = browser_control (NOT application_launch - it's navigation)
+## CRITICAL CONTEXT RULES (MANDATORY - violating these is an ERROR)
 
-### INTENT COLLISION RULE (MANDATORY):
-Window geometry, focus, snapping, minimizing, maximizing, closing, switching, task view, virtual desktops
-→ ALWAYS window_management, NEVER application_control.
-
-Examples that MUST be window_management:
-- "snap left/right" → window_management
-- "minimize all" → window_management
-- "switch window" → window_management
-- "maximize this" → window_management
-- "move to desktop 2" → window_management
-- "close this window" → window_management (NOT application_control)
+1. If context shows PAUSED MEDIA and user says "play/continue/resume":
+   → strategy MUST be resume_media, NOT launch_app
+   
+2. If context shows APP ALREADY RUNNING and user says "open [app]":
+   → strategy MUST be focus_app, NOT launch_app
+   
+3. If context shows MEDIA PLAYING and user says "pause/stop":
+   → strategy MUST be pause_media
+   
+4. If request is truly ambiguous and context provides no help:
+   → strategy MUST be ask_user
+   
+5. DO NOT choose a strategy if you're guessing. ask_user is preferable to wrong action.
 """
-    
+
     def __init__(self):
         # Use planner model (mistral:7b) for better reasoning
-        # Intent classification is too critical for phi3:mini
+        # Strategy selection is too critical for phi3:mini
         self.model = get_model_manager().get_planner_model()
-        logging.info("IntentAgent initialized with planner model for reliability")
+        logging.info("IntentAgent initialized with strategy-first architecture")
     
     def classify(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Classify user intent with few-shot examples and system context.
+        """Choose best strategy given user input and context.
         
-        UNIFIED DECISION CONTRACT:
-        Returns decision="execute" to proceed, or decision="ask" for clarification.
+        STRATEGY-FIRST CONTRACT:
+        - LLM chooses a STRATEGY (what to do)
+        - Intent is DERIVED from strategy (for routing)
+        - strategy=ask_user means clarification needed (terminal)
         
         Args:
             user_input: Raw user text
@@ -299,11 +273,13 @@ Examples that MUST be window_management:
             
         Returns:
             {
-                "decision": "execute" | "ask",
-                "intent": "screen_capture",
-                "confidence": 0.95,
-                "reasoning": "User wants to capture the screen",
-                "question": "..."  # Only if decision == "ask"
+                "strategy": "resume_media",           # REQUIRED
+                "target": "spotify",                   # Optional
+                "confidence": 0.95,                    # REQUIRED
+                "reasoning": "Media is paused...",    # REQUIRED
+                "intent": "system_control",            # DERIVED (for backward compat)
+                "decision": "execute" | "ask",         # DERIVED (for backward compat)
+                "question": "..."                      # Only if strategy == ask_user
             }
         """
         # Build context snapshot for LLM
@@ -312,62 +288,139 @@ Examples that MUST be window_management:
             context_str = ContextSnapshot.build(context)
             context_section = f"""## CURRENT SYSTEM STATE
 {context_str}
-
 """
         
-        prompt = f"""You are an intent classifier for a desktop assistant.
+        # DELIBERATIVE REASONING PROMPT
+        # Force multi-step internal reasoning before output
+        prompt = f"""You are a strategy selector for a desktop assistant.
 
-{context_section}Your job: Classify the user's intent into ONE category.
+{context_section}
 
-Use the system state to resolve ambiguity when possible.
-Prefer acting without asking if the intent is unambiguous given the context.
-If truly ambiguous and you cannot determine the user's intent, set decision to "ask".
+## YOUR TASK
+
+Given the user input and system state, select the best strategy.
+
+## REASONING PROCESS (you MUST follow these steps)
+
+STEP 1: List 2-3 plausible strategies for this input.
+STEP 2: For each strategy, check if context INVALIDATES it.
+STEP 3: Choose the best remaining strategy.
+
+## EXAMPLE REASONING
+
+User: "play music"
+Context: media: paused (Spotify.exe)
+
+Step 1 - Candidates:
+- resume_media (continue what's paused)
+- launch_app (start a player)
+
+Step 2 - Elimination:
+- launch_app: INVALID - media is already active/paused
+- resume_media: VALID - context shows paused media
+
+Step 3 - Choice: resume_media
+
+---
 
 {self.FEW_SHOT_EXAMPLES}
 
 ---
 
-NOW CLASSIFY THIS INPUT:
+## NOW REASON ABOUT THIS INPUT
+
 User: "{user_input}"
 
-Respond with JSON:
-- decision: "execute" if you can determine the intent, "ask" if clarification needed
-- intent: exactly one of the enum values
-- confidence: 0.0 to 1.0
-- reasoning: brief explanation (1 sentence)
-- question: (only if decision is "ask") the clarification question to ask
+Think through Steps 1-3 internally, then respond with JSON:
+- candidates: list of 2-3 strategies you considered (REQUIRED for logging)
+- eliminated: list of strategies eliminated with brief reason (REQUIRED for logging)
+- strategy: the strategy you chose after elimination (REQUIRED)
+- target: what the action applies to (if applicable)
+- confidence: 0.0 to 1.0 (REQUIRED)
+- reasoning: your elimination logic condensed (REQUIRED)
+- question: (ONLY if strategy is ask_user) the clarification question
 
-REMEMBER:
-- "screenshot" = screen_capture, NOT application_launch
-- "what time" = system_query, NOT information_query  
-- "focus/close window" = application_control, NOT application_launch
+SPECIAL STRATEGIES:
+- ask_user: Use when you need more information to decide
+- out_of_scope: Use when you understand the request but CANNOT do it
+  Example response: "I understand you want X, but I don't have the capability to do that yet."
+
+CRITICAL: If a strategy is INVALIDATED by context, do NOT choose it.
 """
         
         try:
             result = self.model.generate(prompt, schema=self.INTENT_SCHEMA)
             
-            # Ensure expected types and defaults
-            if "decision" not in result:
-                result["decision"] = "execute"  # Default to execute for backward compatibility
+            # INVARIANT: Strategy must be present
+            strategy = result.get("strategy")
+            if not strategy:
+                logging.error("LLM did not return a strategy - treating as failure")
+                return {
+                    "strategy": "ask_user",
+                    "intent": None,
+                    "decision": "ask",
+                    "confidence": 0.0,
+                    "reasoning": "Model failed to select a strategy",
+                    "question": "I'm not sure what you'd like me to do. Could you please clarify?"
+                }
+            
+            # DERIVE intent from strategy (backward compatibility)
+            derived_intent = STRATEGY_TO_INTENT.get(strategy)
+            result["intent"] = derived_intent
+            
+            # DERIVE decision from strategy
+            if strategy in ("ask_user", "out_of_scope"):
+                result["decision"] = "ask"
+            else:
+                result["decision"] = "execute"
+            
+            # Ensure confidence is float
             if "confidence" in result:
                 result["confidence"] = float(result["confidence"])
-            if "reasoning" not in result:
-                result["reasoning"] = "No reasoning provided"
             
-            decision = result.get("decision", "execute")
-            logging.info(f"Intent classified: {result['intent']} ({result['confidence']:.2f}) decision={decision}")
-            logging.debug(f"Reasoning: {result.get('reasoning', 'N/A')}")
+            # ===== COMPREHENSIVE STRATEGY LOGGING =====
+            # Log full deliberation trace for debugging and training data
+            candidates = result.get("candidates", [])
+            eliminated = result.get("eliminated", [])
+            target = result.get("target", "")
             
-            if decision == "ask":
-                logging.info(f"Clarification requested: {result.get('question', 'No question provided')}")
+            logging.info(
+                f"STRATEGY DECISION: {strategy} → intent={derived_intent} "
+                f"(conf={result.get('confidence', 0):.2f})"
+            )
+            logging.info(f"  Input: {user_input[:80]}...")
+            logging.info(f"  Candidates: {candidates}")
+            logging.info(f"  Eliminated: {eliminated}")
+            logging.info(f"  Target: {target}")
+            logging.info(f"  Reasoning: {result.get('reasoning', 'N/A')}")
+            
+            if context_section:
+                # Log context summary (first 200 chars)
+                logging.debug(f"  Context: {context_section[:200].replace(chr(10), ' ')}")
+            
+            # Handle terminal strategies
+            if strategy == "ask_user":
+                question = result.get("question", "Could you please clarify what you'd like me to do?")
+                logging.info(f"  → Clarification needed: {question}")
+                result["question"] = question
+            
+            elif strategy == "out_of_scope":
+                # Generate mature "I can't do this" response
+                result["response"] = (
+                    "I understand what you want, but I don't have the capability to do that yet."
+                )
+                logging.info(f"  → Out of scope: {result.get('reasoning', 'No capability')}")
+                result["question"] = result["response"]  # For display consistency
             
             return result
             
         except Exception as e:
-            logging.error(f"Intent classification failed: {e}")
+            logging.error(f"Strategy selection failed: {e}")
             return {
-                "decision": "execute",
-                "intent": "unknown",
+                "strategy": "ask_user",
+                "intent": None,
+                "decision": "ask",
                 "confidence": 0.0,
-                "reasoning": f"Classification error: {str(e)}"
+                "reasoning": f"Strategy selection error: {str(e)}",
+                "question": "I encountered an error. Could you please try again?"
             }

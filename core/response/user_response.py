@@ -143,6 +143,18 @@ def from_orchestrator_result(result: Dict[str, Any]) -> UserResponse:
     
     # === ERROR PATHS ===
     
+    # Goal pipeline errors - respond maturely, don't hallucinate capabilities
+    if result_type in ("goal_blocked", "unsupported_goal", "planning_failed"):
+        reason = result.get("error", "")
+        return UserResponse(
+            type="clarification",
+            content=_safe_text(
+                f"I understand what you want, but I can't do that yet. {reason}" 
+                if reason else 
+                "I understand what you want, but I don't have the capability to do that yet."
+            )
+        )
+    
     if status == "error":
         # CRITICAL: Never expose raw stack traces or internal errors
         # result.get("error") might contain Traceback - use response instead

@@ -48,8 +48,14 @@ class IntentRouter:
         Returns:
             Pipeline result dict
         """
+        # Strategy-first: intent is already derived from strategy in IntentAgent
+        # We just read it here for routing
         intent = intent_result.get("intent", "unknown")
         confidence = intent_result.get("confidence", 0.0)
+        strategy = intent_result.get("strategy")  # For logging
+        
+        if strategy:
+            logging.info(f"Routing strategy={strategy} → intent={intent}")
         
         # Confidence gating: low confidence -> fallback
         if confidence < CONFIDENCE_THRESHOLD:
@@ -70,7 +76,8 @@ class IntentRouter:
         
         if handler:
             logging.info(f"Routing to {intent} pipeline (confidence={confidence:.2f})")
-            return handler(user_input, context, **kwargs)
+            # Pass intent via kwargs to avoid re-classification
+            return handler(user_input, context, intent=intent, **kwargs)
         
         # No handler for this intent: try fallback
         logging.warning(f"No handler for intent '{intent}' -> fallback")

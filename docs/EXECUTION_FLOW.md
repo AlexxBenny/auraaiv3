@@ -52,12 +52,13 @@ _process_single(context)
     │       ├─► ContextSnapshot.build(context) injected into prompt
     │       └─► Returns {decision, intent, confidence, question?}
     │
-    ├─► IF decision == "ask": RETURN clarification question to user
+    ├─► IF decision == "ask": RETURN {type: "clarification", question}
+    │       └─► TERMINAL: No tool resolution or execution  ◄── CRITICAL
     │
     ├─► IntentRouter.route(intent_result)
-    │       └─► Dispatches to registered pipeline
+    │       └─► Passes intent to handler via kwargs (intent=...)
     │
-    └─► Pipeline handles execution
+    └─► Pipeline handles execution (receives intent, may not re-classify)
 ```
 
 ### Intent Categories & Pipelines
@@ -80,7 +81,7 @@ _process_single(context)
 ### Action Pipeline Detail
 
 ```
-_handle_action()
+_handle_action(intent=...)  ◄── Intent passed from router (NEVER re-classified)
     │
     ├─► ToolResolver.resolve(intent, args)
     │       ├─► Stage 1: Direct registry lookup
@@ -93,6 +94,10 @@ _handle_action()
     │
     └─► Return result
 ```
+
+> [!IMPORTANT]
+> **Invariant**: Intent is classified ONCE per request (in `_process_single`) and passed immutably.
+> Handlers may NOT re-classify intent. This prevents silent overrides of LLM decisions.
 
 ---
 

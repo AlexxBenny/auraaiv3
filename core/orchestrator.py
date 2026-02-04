@@ -189,9 +189,10 @@ class Orchestrator:
         
         intent = intent_result.get("intent", "unknown")
         confidence = intent_result.get("confidence", 0)
+        strategy = intent_result.get("strategy")  # Strategy-first architecture
         
-        logging.info(f"Intent: {intent} (confidence: {confidence:.2f})")
-        progress.emit(f"Identified: {intent.replace('_', ' ')}")
+        logging.info(f"Strategy: {strategy} → Intent: {intent} (confidence: {confidence:.2f})")
+        progress.emit(f"Identified: {intent.replace('_', ' ') if intent else 'unknown'}")
         
         # STEP 3: Route to intent-specific pipeline
         # IntentRouter handles confidence threshold internally
@@ -244,19 +245,33 @@ class Orchestrator:
             # STEP 2: Orchestrate planning
             orch_result = self.goal_orchestrator.orchestrate(meta_goal, context)
             
+            # NO LEGACY FALLBACK - Surface errors for proper debugging
             if orch_result.status == "blocked":
                 logging.warning(f"Goal orchestration blocked: {orch_result.reason}")
-                # Fall back to legacy multi path
-                return self._process_multi_legacy(user_input, context, progress)
+                return {
+                    "status": "error",
+                    "type": "goal_blocked",
+                    "error": orch_result.reason,
+                    "mode": "goal"
+                }
             
             if orch_result.status == "no_capability":
-                logging.info(f"Goal type not supported in Phase 1: {orch_result.reason}")
-                # Fall back to legacy multi path
-                return self._process_multi_legacy(user_input, context, progress)
+                logging.info(f"Goal type not supported: {orch_result.reason}")
+                return {
+                    "status": "error",
+                    "type": "unsupported_goal",
+                    "error": orch_result.reason,
+                    "mode": "goal"
+                }
             
             if orch_result.plan_graph is None:
                 logging.warning("No plan graph produced")
-                return self._process_multi_legacy(user_input, context, progress)
+                return {
+                    "status": "error",
+                    "type": "planning_failed",
+                    "error": "Could not generate execution plan",
+                    "mode": "goal"
+                }
             
             # STEP 3: Execute plan graph
             plan_graph = orch_result.plan_graph
@@ -326,45 +341,17 @@ class Orchestrator:
             
         except Exception as e:
             logging.error(f"Goal processing failed: {e}", exc_info=True)
-            # Fall back to legacy
-            return self._process_multi_legacy(user_input, context, progress)
+            # NO LEGACY FALLBACK - Let errors surface
+            return {
+                "status": "error",
+                "type": "goal_execution",
+                "error": str(e),
+                "mode": "goal"
+            }
     
-    def _process_multi_legacy(self, user_input: str, context: Dict[str, Any],
-                               progress: ProgressEmitter = NULL_EMITTER) -> Dict[str, Any]:
-        """Legacy multi-action path (fallback when goal path fails).
-        
-        This is the OLD path that did verb-counting decomposition.
-        Kept for fallback safety.
-        """
-        logging.info("Using legacy multi path")
-        progress.emit("Using legacy decomposition...")
-        
-        # Use TDA for decomposition
-        decomposition = self.tda.decompose(user_input)
-        actions = decomposition.get("subtasks", [])
-        formatted_actions = []
-        for i, subtask in enumerate(actions):
-            formatted_actions.append({
-                "id": f"a{i+1}",
-                "description": subtask.get("description", ""),
-                "depends_on": subtask.get("dependencies", [])
-            })
-        
-        if not formatted_actions:
-            return self._process_single(user_input, context, progress)
-        
-        result = handle_multi(
-            actions=formatted_actions,
-            intent_agent=self.intent_agent,
-            tool_resolver=self.tool_resolver,
-            executor=self.executor,
-            context=context
-        )
-        
-        result["mode"] = "multi_legacy"
-        return result
-    
-    # NOTE: Old _process_multi removed - replaced by _process_goal + _process_multi_legacy
+    # LEGACY MULTI PATH REMOVED
+    # Reason: Silent fallback to context-blind classification undermined
+    # all strategy-first guarantees. Errors now surface properly.
 
     
     def _handle_info(self, user_input: str, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
@@ -376,14 +363,19 @@ class Orchestrator:
     def _handle_action(self, user_input: str, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """Handle action queries.
         
+        INVARIANT: Intent is computed once per request (in _process_single) and passed immutably.
+        This handler may not re-classify intent.
+        
         Note: High intent confidence ≠ guaranteed executability.
         If tool resolution fails, route to fallback for reasoning.
         """
         progress = kwargs.get("progress", NULL_EMITTER)
         
-        # Re-classify to get intent (router already has it, but we need it for tool_resolver)
-        intent_result = self.intent_agent.classify(user_input)
-        intent = intent_result.get("intent", "unknown")
+        # Intent MUST be passed from router - never re-classify
+        intent = kwargs.get("intent")
+        if intent is None:
+            logging.error("INVARIANT VIOLATION: _handle_action called without intent")
+            intent = "unknown"
         
         result = handle_action(
             user_input=user_input,
