@@ -1,7 +1,7 @@
 {
   "date": "2026-02-04",
   "schema_version": 1,
-  "count": 16,
+  "count": 33,
   "facts": [
     {
       "fact_id": "6c5510b1-ce56-4fa1-b9dc-38eb4eb630c1",
@@ -254,6 +254,308 @@
       },
       "fact_keys": [
         "action",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "a7bff776-5a69-4dd7-857c-a0edb20044c5",
+      "timestamp": "2026-02-04T14:12:39.031922",
+      "tool": "system.audio.media_play_pause",
+      "query": "pause music",
+      "facts": {
+        "tool": "system.audio.media_play_pause",
+        "action": "media_play_pause"
+      },
+      "fact_keys": [
+        "action",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "52d6afa4-1fb7-45c5-bbed-b69ede6c7d34",
+      "timestamp": "2026-02-04T14:13:09.740773",
+      "tool": "system.audio.media_play_pause",
+      "query": "play music",
+      "facts": {
+        "tool": "system.audio.media_play_pause",
+        "action": "media_play_pause"
+      },
+      "fact_keys": [
+        "action",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "5d071e2f-35a0-4a84-b535-d8c9ec777a1e",
+      "timestamp": "2026-02-04T14:13:56.379531",
+      "tool": "system.audio.media_play_pause",
+      "query": "pause music",
+      "facts": {
+        "tool": "system.audio.media_play_pause",
+        "action": "media_play_pause"
+      },
+      "fact_keys": [
+        "action",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "2f30a4ef-f182-487e-b0f4-bf7863e58d00",
+      "timestamp": "2026-02-04T14:14:15.697099",
+      "tool": "system.display.set_brightness",
+      "query": "set brightness to 0",
+      "facts": {
+        "tool": "system.display.set_brightness",
+        "brightness_level": 0,
+        "display_count": 1,
+        "displays": [
+          "BOE Display Technology 0C29"
+        ]
+      },
+      "fact_keys": [
+        "brightness_level",
+        "display_count",
+        "displays",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "fc707e31-1e61-4456-b108-a5d7bdee28d4",
+      "timestamp": "2026-02-04T14:15:08.202028",
+      "tool": "system.audio.media_play_pause",
+      "query": "resume music",
+      "facts": {
+        "tool": "system.audio.media_play_pause",
+        "action": "media_play_pause"
+      },
+      "fact_keys": [
+        "action",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "11f88163-04e3-4bbd-b335-5aea5f363b4d",
+      "timestamp": "2026-02-04T14:15:27.069712",
+      "tool": "system.display.set_brightness",
+      "query": "set brightness to 60",
+      "facts": {
+        "tool": "system.display.set_brightness",
+        "brightness_level": 60,
+        "display_count": 1,
+        "displays": [
+          "BOE Display Technology 0C29"
+        ]
+      },
+      "fact_keys": [
+        "brightness_level",
+        "display_count",
+        "displays",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "a3c7ad36-0711-4970-9fea-c8c6cc32a924",
+      "timestamp": "2026-02-04T14:16:38.823281",
+      "tool": "files.create_folder",
+      "query": "create a folder named space",
+      "facts": {
+        "status": "success",
+        "path": "space",
+        "already_existed": false,
+        "created_parents": true
+      },
+      "fact_keys": [
+        "already_existed",
+        "created_parents",
+        "path",
+        "status"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "b2264a92-1595-40f6-bd85-5440885f269f",
+      "timestamp": "2026-02-04T14:17:45.812768",
+      "tool": "files.create_folder",
+      "query": "set directory D:\\ as the active directory",
+      "facts": {
+        "status": "success",
+        "path": "D:\\",
+        "already_existed": true
+      },
+      "fact_keys": [
+        "already_existed",
+        "path",
+        "status"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "3f12e33a-9904-4c52-90e3-802fa3e34986",
+      "timestamp": "2026-02-04T15:01:41.505324",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "1e2c4c6d-d9dd-4adf-820b-78396bbc3b00",
+      "timestamp": "2026-02-04T15:02:29.121771",
+      "tool": "system.apps.launch.shell",
+      "query": "search for india",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "dd04a722-a106-433b-bd04-bd26a0e64384",
+      "timestamp": "2026-02-04T15:03:22.129160",
+      "tool": "system.apps.launch.shell",
+      "query": "open spotify",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "0dcb79d4-014b-4d1a-8047-e038f9f8e1a8",
+      "timestamp": "2026-02-04T15:04:10.497556",
+      "tool": "system.audio.mute",
+      "query": "mute volume",
+      "facts": {
+        "tool": "system.audio.mute",
+        "muted": true
+      },
+      "fact_keys": [
+        "muted",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "e70a7ac4-33b7-4609-a928-b660331d31da",
+      "timestamp": "2026-02-04T15:04:30.435846",
+      "tool": "system.display.set_brightness",
+      "query": "set brightness to 100",
+      "facts": {
+        "tool": "system.display.set_brightness",
+        "brightness_level": 100,
+        "display_count": 1,
+        "displays": [
+          "BOE Display Technology 0C29"
+        ]
+      },
+      "fact_keys": [
+        "brightness_level",
+        "display_count",
+        "displays",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "930cb67c-b4f7-4747-b444-d5ab696ceb28",
+      "timestamp": "2026-02-04T15:38:41.380318",
+      "tool": "system.audio.mute",
+      "query": "mute volume",
+      "facts": {
+        "tool": "system.audio.mute",
+        "muted": true
+      },
+      "fact_keys": [
+        "muted",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "e0962dd2-56cd-4402-8c76-2d8bc9723b74",
+      "timestamp": "2026-02-04T15:38:59.430839",
+      "tool": "system.display.set_brightness",
+      "query": "set brightness to 100",
+      "facts": {
+        "tool": "system.display.set_brightness",
+        "brightness_level": 100,
+        "display_count": 1,
+        "displays": [
+          "BOE Display Technology 0C29"
+        ]
+      },
+      "fact_keys": [
+        "brightness_level",
+        "display_count",
+        "displays",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "feb8a3be-1ef4-4a8a-b088-918a6b38f112",
+      "timestamp": "2026-02-04T15:47:30.980885",
+      "tool": "system.audio.unmute",
+      "query": "unmute",
+      "facts": {
+        "tool": "system.audio.unmute",
+        "muted": true
+      },
+      "fact_keys": [
+        "muted",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "3a5c0c64-2658-47fb-b928-396ea2107628",
+      "timestamp": "2026-02-04T15:47:49.275850",
+      "tool": "system.display.set_brightness",
+      "query": "set brightness to 100",
+      "facts": {
+        "tool": "system.display.set_brightness",
+        "brightness_level": 100,
+        "display_count": 1,
+        "displays": [
+          "BOE Display Technology 0C29"
+        ]
+      },
+      "fact_keys": [
+        "brightness_level",
+        "display_count",
+        "displays",
         "tool"
       ],
       "session_id": "unknown",

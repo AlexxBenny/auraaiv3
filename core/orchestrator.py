@@ -30,6 +30,7 @@ from core.context import SessionContext
 from execution.executor import ToolExecutor
 from memory.ambient import get_ambient_memory
 from models.model_manager import get_model_manager
+from core.execution_coordinator import ExecutionCoordinator
 
 # Progress streaming (GUI only, no-op for terminal)
 try:
@@ -123,6 +124,30 @@ class Orchestrator:
         # Fallback handler for low confidence
         self.router.set_fallback(self._handle_fallback)
     
+    def _get_execution_mode(self, user_input: str, classification: str) -> str:
+        """Conservative gate for execution routing.
+        
+        THIS IS NOT THE INTELLIGENCE - just cost control.
+        When in doubt, return "orchestrated" and let the LLM decide.
+        
+        Args:
+            user_input: User's command
+            classification: QueryClassifier result ("single" or "multi")
+            
+        Returns:
+            "direct": Single pipeline, LLM exits (obvious simple case)
+            "orchestrated": Coordinator takes over (everything else)
+        """
+        # Only skip coordinator when EXTREMELY safe
+        if classification == "single":
+            lower = user_input.lower()
+            # No conjunctions, no conditionals → direct is safe
+            if " and " not in lower and " then " not in lower and " if " not in lower:
+                return "direct"
+        
+        # Let coordinator decide - it may still do one-shot execution
+        return "orchestrated"
+    
     def process(self, user_input: str, progress: ProgressEmitter = None) -> Dict[str, Any]:
         """Main entry point - process user input.
         
@@ -149,13 +174,19 @@ class Orchestrator:
         logging.info(f"QueryClassifier: {classification}")
         progress.emit("Analyzing your request...")
         
-        if classification == "single":
-            # Single path: UNCHANGED from before
+        # STEP 2: Determine execution mode (conservative gate)
+        mode = self._get_execution_mode(user_input, classification)
+        logging.info(f"ExecutionMode: {mode}")
+        
+        if mode == "direct":
+            # Fast path: single pipeline, LLM exits
             result = self._process_single(user_input, context, progress)
         else:
-            # Multi path: NEW goal-oriented architecture
-            progress.emit("Understanding your goals...")
-            result = self._process_goal(user_input, context, progress)
+            # Coordinator handles batch + orchestrated
+            # LLM inside coordinator decides if iteration needed
+            progress.emit("Planning execution...")
+            coordinator = ExecutionCoordinator(self)
+            result = coordinator.execute(user_input, context)
         
         # Update session
         self.context.complete_task(result)

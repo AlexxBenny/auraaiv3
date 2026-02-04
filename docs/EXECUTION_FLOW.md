@@ -34,9 +34,29 @@ Orchestrator.process()
     ├─► QueryClassifier.classify() (syntactic, NO context)
     │       └─► Returns "single" or "multi"
     │
-    ├─► IF "single": _process_single(context) → IntentAgent WITH context
-    └─► IF "multi":  _process_goal(context)
+    ├─► _get_execution_mode()  ← NEW: Conservative gate
+    │       └─► Returns "direct" or "orchestrated"
+    │
+    ├─► IF "direct": _process_single(context) → IntentAgent WITH context
+    └─► IF "orchestrated": ExecutionCoordinator.execute()
+            └─► LLM decides structure, dispatches to pipelines
 ```
+
+---
+
+## Execution Modes (NEW)
+
+**Gate**: `_get_execution_mode()` - Conservative, dumb routing for cost control.
+
+| Mode | Meaning | When |
+|------|---------|------|
+| `direct` | Single pipeline, LLM exits | Clearly atomic, no conjunctions |
+| `orchestrated` | Coordinator takes over | Everything else |
+
+> [!IMPORTANT]
+> The gate is NOT the intelligence. It only answers:
+> "Is this so trivial that waking the conductor would be wasteful?"
+> When in doubt, it returns "orchestrated" and lets the LLM decide.
 
 ---
 
@@ -170,6 +190,7 @@ _process_goal()
 | File | Class | Responsibility |
 |------|-------|----------------|
 | [`orchestrator.py`](file:///d:/aura/AURA/core/orchestrator.py) | `Orchestrator` | Main entry point, routing |
+| [`execution_coordinator.py`](file:///d:/aura/AURA/core/execution_coordinator.py) | `ExecutionCoordinator` | LLM-driven orchestration over pipelines |
 | [`context_snapshot.py`](file:///d:/aura/AURA/core/context_snapshot.py) | `ContextSnapshot` | Format ambient state for LLM |
 | [`intent_router.py`](file:///d:/aura/AURA/core/intent_router.py) | `IntentRouter` | Route intents to pipelines |
 | [`tool_resolver.py`](file:///d:/aura/AURA/core/tool_resolver.py) | `ToolResolver` | Map intents to tools |

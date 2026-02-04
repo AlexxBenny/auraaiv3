@@ -93,6 +93,12 @@ def handle_action(user_input: str, intent: str, context: Dict[str, Any],
     tool_display = tool_name.split('.')[-1].replace('_', ' ')
     progress.emit(f"Found tool: {tool_display}")
     
+    # Step 1.5: PathResolver enforcement for file operations
+    # INVARIANT: All file paths must go through PathResolver before reaching tools
+    if intent == "file_operation" or tool_name.startswith("files."):
+        params = _resolve_file_params(user_input, params, context)
+    
+    
     # Step 2: Prerequisite sanity check
     prereq = check_prerequisites(tool_name, context)
     
@@ -161,3 +167,60 @@ def handle_action_with_tools(user_input: str, intent: str, context: Dict[str, An
     
     resolver = ToolResolver()
     return handle_action(user_input, intent, context, resolver, executor)
+
+
+def _resolve_file_params(user_input: str, params: Dict[str, Any], 
+                         context: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve file paths through PathResolver before execution.
+    
+    INVARIANT: All paths reaching file tools must be absolute.
+    This is the SINGLE AUTHORITY enforcement for the single pipeline.
+    
+    Args:
+        user_input: Original user command (for anchor inference)
+        params: Tool parameters (may contain relative paths)
+        context: System context with session info
+        
+    Returns:
+        Updated params with resolved absolute paths
+    """
+    from pathlib import Path
+    from core.path_resolver import PathResolver
+    
+    # Path keys that file tools accept
+    path_keys = ["path", "source", "destination", "src", "dest", "target"]
+    
+    for key in path_keys:
+        if key not in params or not params[key]:
+            continue
+            
+        raw_path = params[key]
+        
+        # Skip if already absolute
+        if Path(raw_path).is_absolute():
+            logging.debug(f"PathResolver (single): {key}='{raw_path}' already absolute")
+            continue
+        
+        # Infer anchor from user input
+        anchor = PathResolver.infer_base_anchor(user_input) or "WORKSPACE"
+        
+        # Get session context for WORKSPACE resolution
+        session_ctx = context.get("_session_context")
+        
+        try:
+            resolved = PathResolver.resolve(
+                raw_path=raw_path,
+                base_anchor=anchor,
+                context=session_ctx
+            )
+            params[key] = str(resolved.absolute_path)
+            logging.info(
+                f"PathResolver (single): {key}='{raw_path}' → "
+                f"'{resolved.absolute_path}' (anchor={anchor})"
+            )
+        except Exception as e:
+            logging.warning(f"PathResolver (single) failed for {key}='{raw_path}': {e}")
+            # Fall through with original value - tool may handle it
+    
+    return params
+

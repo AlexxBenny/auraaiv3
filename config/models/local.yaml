@@ -27,3 +27,10 @@ tda:
   provider: ollama
   model: mistral:7b-instruct
   base_url: http://localhost:11434
+
+# NEW: Execution Coordinator (structural reasoning, controls pipelines)
+coordinator:
+  provider: ollama
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434
+
