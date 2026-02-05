@@ -1,0 +1,61 @@
+{
+  "date": "2026-02-05",
+  "schema_version": 1,
+  "count": 3,
+  "facts": [
+    {
+      "fact_id": "2555e8b4-0a84-4bd5-a274-2ff8472b7e08",
+      "timestamp": "2026-02-05T13:20:27.364093",
+      "tool": "files.create_folder",
+      "query": "create a folder named alex",
+      "facts": {
+        "status": "success",
+        "path": "D:\\aura\\AURA\\alex",
+        "already_existed": false,
+        "created_parents": true
+      },
+      "fact_keys": [
+        "already_existed",
+        "created_parents",
+        "path",
+        "status"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "75875c0d-9026-45c8-acdf-1b5777003604",
+      "timestamp": "2026-02-05T13:21:52.621907",
+      "tool": "files.delete_folder",
+      "query": "delete the folder alex",
+      "facts": {
+        "status": "success",
+        "deleted_path": "D:\\aura\\AURA\\alex",
+        "deleted_name": "alex",
+        "was_recursive": false
+      },
+      "fact_keys": [
+        "deleted_name",
+        "deleted_path",
+        "status",
+        "was_recursive"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "900cb82b-7813-4c08-97f5-7506a31eab28",
+      "timestamp": "2026-02-05T13:43:08.013442",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

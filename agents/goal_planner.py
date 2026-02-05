@@ -242,7 +242,8 @@ class GoalPlanner:
             args={
                 "platform": platform,
                 "query": query,
-                "url": url  # Pre-computed for ToolResolver
+                "url": url,  # Pre-computed for ToolResolver
+                "browser": DEFAULT_BROWSER
             },
             expected_effect=f"{platform}_search_results_visible"
         )

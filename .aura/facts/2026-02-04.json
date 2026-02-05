@@ -1,7 +1,7 @@
 {
   "date": "2026-02-04",
   "schema_version": 1,
-  "count": 38,
+  "count": 40,
   "facts": [
     {
       "fact_id": "6c5510b1-ce56-4fa1-b9dc-38eb4eb630c1",
@@ -634,6 +634,34 @@
       "timestamp": "2026-02-04T21:22:05.613459",
       "tool": "system.apps.launch.shell",
       "query": "search nivida in youtube",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "0b0472c1-ba63-4b14-b74b-1aef03d70d28",
+      "timestamp": "2026-02-04T23:26:23.539823",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "146a40a1-1dda-4c09-a644-b7d9507845b9",
+      "timestamp": "2026-02-04T23:48:34.052532",
+      "tool": "system.apps.launch.shell",
+      "query": "launch brave",
       "facts": {
         "tool": "system.apps.launch.shell"
       },

@@ -124,6 +124,13 @@ class GoalOrchestrator:
         # This keeps Windows paths out of JSON entirely
         if action.intent == "file_operation" and "path" in action.args:
             params["path"] = action.args["path"]
+
+        if action.intent == "browser_control" and "url" in action.args:
+            params["url"] = action.args["url"]
+            logging.info(f"DEBUG: Injected browser URL: {action.args['url']}")
+            if "browser" in action.args:
+                params["app_name"] = action.args["browser"]
+                logging.info(f"DEBUG: Injected browser name: {action.args['browser']}")
         
         if not tool_name:
             logging.warning(
