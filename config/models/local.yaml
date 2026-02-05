@@ -1,9 +1,35 @@
 # Local runtime model configuration
-# All models use Ollama (local, no API keys required)
+# SINGLE SOURCE OF TRUTH for role → model mapping
+#
+# INVARIANT: All agents depend on roles, not models.
+# Changing any model here requires ZERO code changes.
+
+# ============================================================================
+# Classification & Routing (fast, cheap)
+# ============================================================================
 
 intent:
   provider: ollama
-  model: phi3:mini
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434
+
+classifier:
+  provider: ollama
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434
+
+# ============================================================================
+# Reasoning & Planning (strong reasoning)
+# ============================================================================
+
+goal_interpreter:
+  provider: ollama
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434
+
+coordinator:
+  provider: ollama
+  model: mistral:7b-instruct
   base_url: http://localhost:11434
 
 planner:
@@ -11,26 +37,30 @@ planner:
   model: mistral:7b-instruct
   base_url: http://localhost:11434
 
+tool_resolver:
+  provider: ollama
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434
+
+# ============================================================================
+# Response & Presentation
+# ============================================================================
+
+response:
+  provider: ollama
+  model: mistral:7b-instruct
+  base_url: http://localhost:11434
+
+# ============================================================================
+# Validation & Advanced Decomposition
+# ============================================================================
+
 critic:
   provider: ollama
   model: llama3:8b
   base_url: http://localhost:11434
 
-# NEW: Decomposition gate (cheap, fast - decides single/multi goal)
-gate:
-  provider: ollama
-  model: phi3:mini
-  base_url: http://localhost:11434
-
-# NEW: Task Decomposition Agent (for multi-goal decomposition)
 tda:
   provider: ollama
   model: mistral:7b-instruct
   base_url: http://localhost:11434
-
-# NEW: Execution Coordinator (structural reasoning, controls pipelines)
-coordinator:
-  provider: ollama
-  model: mistral:7b-instruct
-  base_url: http://localhost:11434
-

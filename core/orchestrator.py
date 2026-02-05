@@ -69,9 +69,9 @@ class Orchestrator:
         # Ambient memory (starts background monitoring)
         self.ambient = get_ambient_memory()
         
-        # LLM for responses
+        # LLM for responses - role-based access (config-driven)
         self.model_manager = get_model_manager()
-        self.response_llm = self.model_manager.get_planner_model()
+        self.response_llm = self.model_manager.get("response")
         
         # Setup intent router
         self.router = IntentRouter()

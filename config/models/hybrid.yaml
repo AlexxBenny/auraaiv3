@@ -1,4 +1,5 @@
 # Hybrid runtime model configuration
+# SINGLE SOURCE OF TRUTH for role → model mapping
 # Local-first, cloud ONLY on infrastructure failure
 #
 # MODE CONTRACT:
@@ -6,6 +7,13 @@
 # - Fallback: Cloud (Gemini) - ONLY on ProviderUnavailableError
 # - Never "cloud when local output is bad"
 # - AURA is deterministic automation, not adaptive AI
+#
+# INVARIANT: All agents depend on roles, not models.
+# Changing any model here requires ZERO code changes.
+
+# ============================================================================
+# Classification & Routing (fast, cheap)
+# ============================================================================
 
 intent:
   primary:
@@ -16,6 +24,37 @@ intent:
     provider: gemini
     model: gemini-2.0-flash-lite
 
+classifier:
+  primary:
+    provider: ollama
+    model: phi3:mini
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.0-flash-lite
+
+# ============================================================================
+# Reasoning & Planning (strong reasoning)
+# ============================================================================
+
+goal_interpreter:
+  primary:
+    provider: ollama
+    model: mistral:7b-instruct
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash
+
+coordinator:
+  primary:
+    provider: ollama
+    model: mistral:7b-instruct
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash
+
 planner:
   primary:
     provider: ollama
@@ -25,6 +64,32 @@ planner:
     provider: gemini
     model: gemini-2.5-flash
 
+tool_resolver:
+  primary:
+    provider: ollama
+    model: mistral:7b-instruct
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash
+
+# ============================================================================
+# Response & Presentation
+# ============================================================================
+
+response:
+  primary:
+    provider: ollama
+    model: mistral:7b-instruct
+    base_url: http://localhost:11434
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash
+
+# ============================================================================
+# Validation & Advanced Decomposition
+# ============================================================================
+
 critic:
   primary:
     provider: ollama
@@ -33,15 +98,6 @@ critic:
   fallback:
     provider: gemini
     model: gemini-2.5-flash
-
-gate:
-  primary:
-    provider: ollama
-    model: phi3:mini
-    base_url: http://localhost:11434
-  fallback:
-    provider: gemini
-    model: gemini-2.0-flash-lite
 
 tda:
   primary:

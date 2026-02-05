@@ -74,7 +74,8 @@ class TaskDecompositionAgent:
     }
     
     def __init__(self):
-        self.model = get_model_manager().get_custom_model("tda")
+        # Role-based model access (config-driven)
+        self.model = get_model_manager().get("tda")
         logging.info("TaskDecompositionAgent initialized")
     
     def decompose(self, user_input: str, intent: str = None) -> Dict[str, Any]:

@@ -254,9 +254,8 @@ User: "do the thing"
 """
 
     def __init__(self):
-        # Use planner model (mistral:7b) for better reasoning
-        # Strategy selection is too critical for phi3:mini
-        self.model = get_model_manager().get_planner_model()
+        # Role-based model access (config-driven)
+        self.model = get_model_manager().get("intent")
         logging.info("IntentAgent initialized with strategy-first architecture")
     
     def classify(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

@@ -73,7 +73,8 @@ class PlannerAgent:
     }
     
     def __init__(self):
-        self.model = get_model_manager().get_planner_model()
+        # Role-based model access (config-driven)
+        self.model = get_model_manager().get("planner")
         self.registry = get_registry()
         logging.info("PlannerAgent initialized (reasoning-only mode)")
     

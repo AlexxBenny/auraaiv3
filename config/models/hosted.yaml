@@ -1,24 +1,58 @@
 # Hosted runtime model configuration
+# SINGLE SOURCE OF TRUTH for role → model mapping
 # Pure cloud-based execution - no local inference
+#
+# INVARIANT: All agents depend on roles, not models.
+# Changing any model here requires ZERO code changes.
+
+# ============================================================================
+# Classification & Routing (fast, cheap)
+# ============================================================================
 
 intent:
   provider: gemini
   model: gemini-2.0-flash-lite
 
+classifier:
+  provider: gemini
+  model: gemini-2.0-flash-lite
+
+# ============================================================================
+# Reasoning & Planning (strong reasoning)
+# ============================================================================
+
+goal_interpreter:
+  provider: gemini
+  model: gemini-2.5-flash
+
+coordinator:
+  provider: gemini
+  model: gemini-2.5-flash
+
 planner:
   provider: gemini
   model: gemini-2.5-flash
+
+tool_resolver:
+  provider: gemini
+  model: gemini-2.5-flash
+
+# ============================================================================
+# Response & Presentation
+# ============================================================================
+
+response:
+  provider: gemini
+  model: gemini-2.5-flash
+
+# ============================================================================
+# Validation & Advanced Decomposition
+# ============================================================================
 
 critic:
   provider: gemini
   model: gemini-2.5-flash
 
-# Gate for decomposition decisions (cheap, fast)
-gate:
-  provider: gemini
-  model: gemini-2.0-flash-lite
-
-# Task Decomposition Agent
 tda:
   provider: gemini
   model: gemini-2.5-flash

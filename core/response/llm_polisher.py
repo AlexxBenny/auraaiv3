@@ -106,7 +106,8 @@ class LLMPolishProvider(PolishProvider):
         if self._model is None:
             try:
                 from models.model_manager import get_model_manager
-                self._model = get_model_manager().get_custom_model(self.model_role)
+                # Role-based model access (config-driven)
+                self._model = get_model_manager().get(self.model_role)
             except Exception:
                 # Model not configured - will cause fallback
                 self._model = None

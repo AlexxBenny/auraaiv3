@@ -71,7 +71,18 @@ class ModelManager:
     
     def _validate_config(self):
         """Validate that required roles are present in config"""
-        required_roles = ["intent", "planner", "critic"]
+        # All roles that agents depend on (config is single source of truth)
+        required_roles = [
+            "intent",           # IntentAgent
+            "classifier",       # QueryClassifier
+            "goal_interpreter", # GoalInterpreter
+            "coordinator",      # ExecutionCoordinator
+            "planner",          # PlannerAgent
+            "tool_resolver",    # ToolResolver
+            "response",         # Orchestrator
+            "critic",           # Validation (future)
+            "tda",              # TaskDecompositionAgent
+        ]
         missing_roles = []
         
         for role in required_roles:
@@ -182,27 +193,88 @@ class ModelManager:
         provider_name = role_config.get("provider", "ollama")
         return self._get_provider(provider_name, role_config)
     
+    # =========================================================================
+    # CANONICAL API: Role-based model access
+    # =========================================================================
+    
+    def get(self, role: str) -> BaseLLMProvider:
+        """Get model for a specific role. THE canonical access method.
+        
+        INVARIANT: One role → one model instance per process.
+        Instances are cached on first access.
+        
+        Args:
+            role: Role name (must exist in YAML config)
+            
+        Returns:
+            BaseLLMProvider instance for the role
+            
+        Raises:
+            ValueError: If role not found in config
+        """
+        # Check cache first (role-based caching)
+        cache_key = f"role:{role}"
+        if cache_key in self._providers:
+            return self._providers[cache_key]
+        
+        # Get config for role
+        config = self.config.get(role)
+        if not config:
+            available_roles = [k for k in self.config.keys() if isinstance(self.config[k], dict)]
+            raise ValueError(
+                f"No configuration for role '{role}' in {self.config_path}. "
+                f"Available roles: {available_roles}"
+            )
+        
+        # Create and cache instance
+        provider = self._get_provider_for_role(role, config)
+        self._providers[cache_key] = provider
+        logging.info(f"ModelManager: created instance for role '{role}'")
+        return provider
+    
+    # =========================================================================
+    # DEPRECATED METHODS - Use get(role) instead
+    # =========================================================================
+    
     def get_intent_model(self) -> BaseLLMProvider:
-        """Get model for intent classification (cheap, fast)"""
-        config = self.config.get("intent", {})
-        return self._get_provider_for_role("intent", config)
+        """DEPRECATED: Use get('intent') instead."""
+        import warnings
+        warnings.warn(
+            "get_intent_model() is deprecated. Use get('intent') instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get("intent")
     
     def get_planner_model(self) -> BaseLLMProvider:
-        """Get model for planning (reasoning, task decomposition)"""
-        config = self.config.get("planner", {})
-        return self._get_provider_for_role("planner", config)
+        """DEPRECATED: Use get('planner') instead."""
+        import warnings
+        warnings.warn(
+            "get_planner_model() is deprecated. Use get('planner') instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get("planner")
     
     def get_critic_model(self) -> BaseLLMProvider:
-        """Get model for criticism/evaluation (post-execution analysis)"""
-        config = self.config.get("critic", {})
-        return self._get_provider_for_role("critic", config)
+        """DEPRECATED: Use get('critic') instead."""
+        import warnings
+        warnings.warn(
+            "get_critic_model() is deprecated. Use get('critic') instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get("critic")
     
     def get_custom_model(self, role: str) -> BaseLLMProvider:
-        """Get a custom model by role name"""
-        config = self.config.get(role, {})
-        if not config:
-            raise ValueError(f"No configuration found for role: {role}")
-        return self._get_provider_for_role(role, config)
+        """DEPRECATED: Use get(role) instead."""
+        import warnings
+        warnings.warn(
+            f"get_custom_model('{role}') is deprecated. Use get('{role}') instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return self.get(role)
     
 
 

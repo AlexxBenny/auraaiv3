@@ -385,7 +385,8 @@ User: "create a folder named space in D drive"
 """
     
     def __init__(self):
-        self.model = get_model_manager().get_planner_model()
+        # Role-based model access (config-driven)
+        self.model = get_model_manager().get("goal_interpreter")
         logging.info("GoalInterpreter initialized (semantic goal extraction)")
     
     def _enforce_topology(

@@ -191,7 +191,8 @@ class ExecutionCoordinator:
     
     def __init__(self, orchestrator: "Orchestrator"):  # Forward reference
         self.orchestrator = orchestrator
-        self.model = get_model_manager().get_planner_model()
+        # Role-based model access (config-driven)
+        self.model = get_model_manager().get("coordinator")
         logging.info("ExecutionCoordinator initialized")
     
     def execute(self, user_input: str, context: Dict[str, Any]) -> Dict[str, Any]:

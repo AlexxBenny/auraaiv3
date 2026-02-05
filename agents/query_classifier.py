@@ -144,7 +144,8 @@ KEY: If action B references output/state of action A → MULTI
 """
     
     def __init__(self):
-        self.model = get_model_manager().get_planner_model()
+        # Role-based model access (config-driven)
+        self.model = get_model_manager().get("classifier")
         logging.info("QueryClassifier initialized (semantic goal routing)")
     
     def classify(self, user_input: str) -> Literal["single", "multi"]:

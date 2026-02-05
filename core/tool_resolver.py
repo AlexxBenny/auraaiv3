@@ -177,7 +177,8 @@ class ToolResolver:
     
     def __init__(self):
         self.registry = get_registry()
-        self.model = get_model_manager().get_planner_model()
+        # Role-based model access (config-driven)
+        self.model = get_model_manager().get("tool_resolver")
         logging.info("ToolResolver initialized (two-stage mode)")
     
     def resolve(self, description: str, intent: str, 
