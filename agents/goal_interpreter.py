@@ -16,6 +16,8 @@ INVARIANTS:
 """
 
 import logging
+import re
+from core.location_config import LocationConfig
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Literal, Tuple, FrozenSet
 from models.model_manager import get_model_manager
@@ -586,6 +588,8 @@ Return JSON with:
     def _derive_anchor_from_scope(self, scope: str) -> Optional[str]:
         """Derive base_anchor from scope annotation.
         
+        Delegates to LocationConfig for scope→anchor conversion.
+        
         INVARIANT: Anchors do NOT leak across scopes.
         - drive:X → DRIVE_X (explicit from scope)
         - inside:X → None (inherit via dependency in orchestrator)
@@ -598,10 +602,4 @@ Return JSON with:
         Returns:
             Anchor name (DRIVE_D, etc.) or None for inheritance/default
         """
-        if scope.startswith("drive:"):
-            letter = scope[6:].upper()
-            return f"DRIVE_{letter}"
-        
-        # All other scopes: no explicit anchor
-        # Orchestrator handles inheritance via dependencies or defaults to WORKSPACE
-        return None
+        return LocationConfig.get().get_anchor_from_scope(scope)

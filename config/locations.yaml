@@ -1,0 +1,58 @@
+# Location/Anchor Configuration
+# Single source of truth for all filesystem anchors
+#
+# INVARIANT: WORKSPACE is always the default anchor (not configurable).
+# This file defines WHAT anchors exist and how they resolve.
+# Scope GRAMMAR (root, inside:X, drive:X, after:X) is defined in Python.
+
+# Named anchors: common filesystem locations
+anchors:
+  DESKTOP:
+    path: "{home}/Desktop"
+    aliases:
+      - "desktop"
+      - "on desktop"
+      - "to desktop"
+      - "in desktop"
+    
+  DOCUMENTS:
+    path: "{home}/Documents"
+    aliases:
+      - "documents"
+      - "my documents"
+      - "in documents"
+      - "to documents"
+    
+  DOWNLOADS:
+    path: "{home}/Downloads"
+    aliases:
+      - "downloads"
+      - "in downloads"
+      - "to downloads"
+    
+  HOME:
+    path: "{home}"
+    aliases:
+      - "home"
+      - "home folder"
+      - "home directory"
+
+# Drive anchors: Windows drive letters
+# Auto-generates DRIVE_C, DRIVE_D, etc. with aliases like "c drive", "drive c"
+drives:
+  enabled_letters: ["C", "D", "E"]
+  path_template: "{letter}:/"
+  alias_templates:
+    - "{letter} drive"
+    - "drive {letter}"
+    - "{letter}:"
+    - "in {letter} drive"
+    - "on {letter} drive"
+
+# Reserved keywords that CANNOT be used as aliases
+# (These are scope grammar keywords - defined here for validation only)
+reserved_keywords:
+  - "root"
+  - "inside"
+  - "after"
+  - "drive"

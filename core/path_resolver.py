@@ -15,6 +15,8 @@ import logging
 if TYPE_CHECKING:
     from core.context import SessionContext
 
+from core.location_config import LocationConfig
+
 
 # =============================================================================
 # RESOLVED PATH CONTRACT
@@ -72,6 +74,7 @@ class PathResolver:
         """Get base anchors for path resolution.
         
         CRITICAL: This is context-dependent, NOT frozen at import time.
+        Delegates to LocationConfig for all anchor definitions.
         
         Args:
             context: Session context with cwd. If None, falls back to Path.cwd()
@@ -80,22 +83,7 @@ class PathResolver:
         Returns:
             Dict of anchor name → Path
         """
-        if context is None:
-            logging.warning("PathResolver: No context provided, using Path.cwd()")
-            workspace = Path.cwd()
-        else:
-            workspace = context.cwd
-        
-        return {
-            "WORKSPACE": workspace,
-            "DESKTOP": Path.home() / "Desktop",
-            "DOCUMENTS": Path.home() / "Documents",
-            "DOWNLOADS": Path.home() / "Downloads",
-            "DRIVE_C": Path("C:/"),
-            "DRIVE_D": Path("D:/"),
-            "DRIVE_E": Path("E:/"),
-            "HOME": Path.home(),
-        }
+        return LocationConfig.get().get_all_anchors(context)
     
     @staticmethod
     def resolve(
@@ -182,7 +170,7 @@ class PathResolver:
     def infer_base_anchor(user_input: str) -> Optional[str]:
         """Infer base anchor from user input.
         
-        This is a helper for GoalInterpreter to detect explicit locations.
+        Delegates to LocationConfig for alias matching.
         
         Examples:
             "in D drive" → DRIVE_D
@@ -196,23 +184,4 @@ class PathResolver:
         Returns:
             Inferred base anchor or None
         """
-        lower = user_input.lower()
-        
-        # Explicit drive mentions
-        if "d drive" in lower or "d:" in lower:
-            return "DRIVE_D"
-        if "c drive" in lower or "c:" in lower:
-            return "DRIVE_C"
-        if "e drive" in lower or "e:" in lower:
-            return "DRIVE_E"
-        
-        # Named locations
-        if "desktop" in lower:
-            return "DESKTOP"
-        if "documents" in lower or "my documents" in lower:
-            return "DOCUMENTS"
-        if "downloads" in lower:
-            return "DOWNLOADS"
-        
-        # No explicit location
-        return None
+        return LocationConfig.get().infer_anchor_from_text(user_input)
