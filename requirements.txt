@@ -12,3 +12,7 @@ PyYAML>=6.0
 
 # GUI dependencies
 aiohttp>=3.8.0              # Web GUI (WebSocket server)
+
+#browser automation
+playwright
+chromium

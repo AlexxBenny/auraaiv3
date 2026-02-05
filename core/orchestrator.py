@@ -124,7 +124,7 @@ class Orchestrator:
         # Fallback handler for low confidence
         self.router.set_fallback(self._handle_fallback)
     
-    def _get_execution_mode(self, user_input: str, classification: str) -> str:
+    def _get_execution_mode(self, user_input: str, classification: str, intent: str = None) -> str:
         """Conservative gate for execution routing.
         
         THIS IS NOT THE INTELLIGENCE - just cost control.
@@ -133,11 +133,16 @@ class Orchestrator:
         Args:
             user_input: User's command
             classification: QueryClassifier result ("single" or "multi")
+            intent: Optional pre-classified intent (if available)
             
         Returns:
             "direct": Single pipeline, LLM exits (obvious simple case)
             "orchestrated": Coordinator takes over (everything else)
         """
+        # SAFETY: Certain intents always need orchestration (composite actions)
+        if intent and self._requires_orchestration(intent):
+            return "orchestrated"
+        
         # Only skip coordinator when EXTREMELY safe
         if classification == "single":
             lower = user_input.lower()
@@ -147,6 +152,43 @@ class Orchestrator:
         
         # Let coordinator decide - it may still do one-shot execution
         return "orchestrated"
+    
+    def _requires_orchestration(self, intent: str) -> bool:
+        """Intents that require multi-step sequencing.
+        
+        Browser control is inherently composite:
+        - open browser → navigate → observe (get_title/url)
+        
+        Direct mode cannot guarantee this sequencing.
+        """
+        COMPOSITE_INTENTS = {
+            "browser_control",  # Always: open → navigate → read
+        }
+        return intent in COMPOSITE_INTENTS
+    
+    def _detect_early_intent(self, user_input: str) -> str:
+        """Heuristic early intent detection (not LLM, just keywords).
+        
+        Used ONLY to force orchestration for composite intents.
+        Does NOT replace IntentAgent's authoritative classification.
+        
+        Returns:
+            Intent string or None if no early detection possible.
+        """
+        lower = user_input.lower()
+        
+        # Browser control signals (semantic, not lexical browser names)
+        BROWSER_SIGNALS = [
+            "search for", "search ",  # Search intent
+            "go to ", "navigate to", "open http", "open www",  # Navigation  
+            "browse to", "visit ",  # Web browsing
+        ]
+        
+        if any(signal in lower for signal in BROWSER_SIGNALS):
+            return "browser_control"
+        
+        return None
+
     
     def process(self, user_input: str, progress: ProgressEmitter = None) -> Dict[str, Any]:
         """Main entry point - process user input.
@@ -174,9 +216,13 @@ class Orchestrator:
         logging.info(f"QueryClassifier: {classification}")
         progress.emit("Analyzing your request...")
         
+        # STEP 1.5: Early intent detection (heuristic, not LLM)
+        # Catches browser_control before mode decision to ensure orchestration
+        early_intent = self._detect_early_intent(user_input)
+        
         # STEP 2: Determine execution mode (conservative gate)
-        mode = self._get_execution_mode(user_input, classification)
-        logging.info(f"ExecutionMode: {mode}")
+        mode = self._get_execution_mode(user_input, classification, intent=early_intent)
+        logging.info(f"ExecutionMode: {mode} (early_intent={early_intent})")
         
         if mode == "direct":
             # Fast path: single pipeline, LLM exits

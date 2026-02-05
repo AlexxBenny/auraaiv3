@@ -47,9 +47,9 @@ INTENT_TOOL_DOMAINS = {
     # File operations (existing tools)
     "file_operation": ["files"],
     
-    # Browser control Phase 0: alias to app launch for browser names
-    # Phase 1+ will add browsers.* domain for real automation
-    "browser_control": ["system.apps.launch"],
+    # Browser control Phase 1+: browser automation tools get first choice
+    # Falls back to system.apps.launch if no browser tools match
+    "browser_control": ["browsers"],
     
     "office_operation": ["office"],
     
@@ -95,8 +95,8 @@ INTENT_STAGE2_ALLOWED_DOMAINS = {
     # File operations can ONLY fallback to files.*
     "file_operation": ["files"],
     
-    # Browser control can ONLY use app launch (Phase 0)
-    "browser_control": ["system.apps.launch"],
+    # Browser control: browsers first, launch as fallback
+    "browser_control": ["browsers", "system.apps.launch"],
     
     # Application launch stays in apps domain
     "application_launch": ["system.apps.launch"],

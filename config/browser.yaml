@@ -1,0 +1,25 @@
+browser:
+  # Backend selection
+  backend: playwright         # playwright | selenium | cdp (Phase 1: playwright only)
+  
+  # Browser engine
+  default_browser: chromium   # chromium | chrome | edge | firefox
+  
+  # Launch mode
+  headless: false             # true = invisible, false = visible window
+  
+  # User data persistence
+  # auto = ephemeral (no persistence)
+  # isolated = ephemeral (no persistence)  
+  # <path> = persistent profile (keeps cookies, logins)
+  user_data_dir: D:/aura/browser_profiles/default
+  
+  # Execution policy
+  timeout_ms: 10000           # Default timeout for navigation/waits
+  reuse_session: true         # Reuse existing browser if available
+  
+  # Safety (Phase 2+)
+  # selectors:
+  #   type: css_only
+  #   max_wait_ms: 8000
+  #   require_visible: true

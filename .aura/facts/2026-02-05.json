@@ -1,7 +1,7 @@
 {
   "date": "2026-02-05",
   "schema_version": 1,
-  "count": 3,
+  "count": 7,
   "facts": [
     {
       "fact_id": "2555e8b4-0a84-4bd5-a274-2ff8472b7e08",
@@ -53,6 +53,68 @@
       },
       "fact_keys": [
         "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "b07357c1-e28b-4d2c-af5f-335183a1c1ff",
+      "timestamp": "2026-02-05T23:21:11.784854",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "f3ab1319-563d-45d7-9a6f-088f0f190f85",
+      "timestamp": "2026-02-05T23:21:46.196929",
+      "tool": "system.apps.launch.shell",
+      "query": "search india",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "4b34313b-4841-485b-a7ae-6a4f04df4a57",
+      "timestamp": "2026-02-05T23:23:26.529805",
+      "tool": "system.apps.launch.shell",
+      "query": "search nvidia in youtube",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "7298b475-4aaf-4b52-947e-cc811d992086",
+      "timestamp": "2026-02-05T23:48:30.741825",
+      "tool": "browsers.get_title",
+      "query": "search for one direction",
+      "facts": {
+        "status": "success",
+        "title": "",
+        "session_id": "57129f24",
+        "content": ""
+      },
+      "fact_keys": [
+        "content",
+        "session_id",
+        "status",
+        "title"
       ],
       "session_id": "unknown",
       "schema_version": 1

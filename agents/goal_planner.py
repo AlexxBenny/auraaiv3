@@ -89,17 +89,46 @@ class PlanResult:
 
 
 # =============================================================================
-# SEARCH ENGINE CONFIGURATION
+# SEARCH ENGINE CONFIGURATION (Centralized in config/apps.yaml)
 # =============================================================================
 
-SEARCH_ENGINES = {
-    "youtube": "https://www.youtube.com/results?search_query={query}",
-    "google": "https://www.google.com/search?q={query}",
-    "bing": "https://www.bing.com/search?q={query}",
-    "duckduckgo": "https://duckduckgo.com/?q={query}",
-    "github": "https://github.com/search?q={query}",
-    "stackoverflow": "https://stackoverflow.com/search?q={query}",
-}
+from pathlib import Path
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def _load_search_engines() -> Dict[str, str]:
+    """Load search engines from centralized config/apps.yaml"""
+    config_path = Path(__file__).parent.parent / "config" / "apps.yaml"
+    default_engines = {
+        "google": "https://www.google.com/search?q={query}",
+        "youtube": "https://www.youtube.com/results?search_query={query}",
+    }
+    
+    if not config_path.exists():
+        logging.warning(f"config/apps.yaml not found, using defaults")
+        return default_engines
+    
+    try:
+        import yaml
+        with open(config_path, encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+        engines = config.get("search", {}).get("engines", {})
+        if engines:
+            logging.debug(f"Loaded {len(engines)} search engines from apps.yaml")
+            return engines
+        return default_engines
+    except Exception as e:
+        logging.warning(f"Failed to load apps.yaml: {e}, using defaults")
+        return default_engines
+
+
+def get_search_engines() -> Dict[str, str]:
+    """Get search engine URL templates."""
+    return _load_search_engines()
+
+
+# Browser names that should NOT be treated as search engines
+BROWSER_NAMES = {"chrome", "edge", "firefox", "brave", "chromium", "safari", "opera"}
 
 DEFAULT_SEARCH_ENGINE = "google"
 DEFAULT_BROWSER = "chrome"
@@ -216,8 +245,13 @@ class GoalPlanner:
         """Plan browser search - abstract action.
         
         Emits intent + description for ToolResolver to resolve.
+        
+        NORMALIZATION RULE:
+        - If platform is a browser name (chrome, edge, etc.), treat it as the browser hint
+          and default to Google search.
+        - If platform is a search engine (youtube, google, etc.), use that engine.
         """
-        platform = (goal.platform or DEFAULT_SEARCH_ENGINE).lower()
+        raw_platform = (goal.platform or DEFAULT_SEARCH_ENGINE).lower()
         query = goal.query or ""
         
         if not query:
@@ -226,13 +260,27 @@ class GoalPlanner:
                 reason="No search query provided"
             )
         
-        # Build search URL for description context
-        if platform in SEARCH_ENGINES:
-            url_template = SEARCH_ENGINES[platform]
-            url = url_template.format(query=quote(query))
+        # Normalize: browser names → browser hint, use default search engine
+        search_engines = get_search_engines()
+        
+        if raw_platform in BROWSER_NAMES:
+            # User said "search in chrome" → use default engine, remember browser
+            browser_hint = raw_platform
+            platform = DEFAULT_SEARCH_ENGINE
+            logging.info(f"Platform '{raw_platform}' is a browser, using {platform} search")
+        elif raw_platform in search_engines:
+            # User said "search in youtube" → use that engine
+            platform = raw_platform
+            browser_hint = DEFAULT_BROWSER
         else:
-            logging.warning(f"Unknown search platform '{platform}', defaulting to Google")
-            url = SEARCH_ENGINES["google"].format(query=quote(f"{platform} {query}"))
+            # Unknown platform → default to Google, don't append platform to query
+            logging.warning(f"Unknown search platform '{raw_platform}', defaulting to Google")
+            platform = DEFAULT_SEARCH_ENGINE
+            browser_hint = DEFAULT_BROWSER
+        
+        # Build search URL
+        url_template = search_engines.get(platform, search_engines["google"])
+        url = url_template.format(query=quote(query))
         
         # Abstract action
         action = PlannedAction(
@@ -243,7 +291,7 @@ class GoalPlanner:
                 "platform": platform,
                 "query": query,
                 "url": url,  # Pre-computed for ToolResolver
-                "browser": DEFAULT_BROWSER
+                "browser": browser_hint  # Browser preference from user
             },
             expected_effect=f"{platform}_search_results_visible"
         )
