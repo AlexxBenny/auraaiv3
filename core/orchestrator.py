@@ -360,6 +360,7 @@ class Orchestrator:
             
             for action_id in plan_graph.execution_order:
                 action = plan_graph.nodes[action_id]
+                logging.info(f"DEBUG ORCH: action_id={action_id}, action.action_class={action.action_class}")
                 
                 try:
                     # Execute via resolver - Phase 3 abstract action → concrete tool

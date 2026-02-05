@@ -46,6 +46,11 @@ class GetTitle(Tool):
         return False
     
     @property
+    def capability_class(self) -> str:
+        """Observer tool - reads state without modification."""
+        return "observe"
+    
+    @property
     def requires_focus(self) -> bool:
         return False
     

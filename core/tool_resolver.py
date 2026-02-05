@@ -182,13 +182,17 @@ class ToolResolver:
         logging.info("ToolResolver initialized (two-stage mode)")
     
     def resolve(self, description: str, intent: str, 
-                context: Dict[str, Any]) -> Dict[str, Any]:
+                context: Dict[str, Any],
+                action_class: str = None) -> Dict[str, Any]:
         """Two-stage resolution: preferred domains → global fallback.
         
         Args:
             description: What the user wants to do
             intent: Classified intent
             context: Current system context
+            action_class: Optional semantic filter ("actuate", "observe", "query").
+                         If provided, ONLY tools with matching capability_class
+                         will be considered. This is a HARD FILTER - no fallback.
             
         Returns:
             {
@@ -200,8 +204,51 @@ class ToolResolver:
                 "reason": "..." (if tool is None)
             }
         """
+        # ===== ACTION CLASS HARD FILTER (Phase 2) =====
+        # Applied BEFORE domain filtering. If specified, ONLY tools with
+        # matching capability_class are considered. No fallback, no relaxation.
+        action_class_filter = None
+        if action_class:
+            if action_class not in ("actuate", "observe", "query"):
+                logging.error(f"Invalid action_class '{action_class}' - must be actuate/observe/query")
+                return {
+                    "tool": None,
+                    "params": {},
+                    "confidence": 0.0,
+                    "domain_match": False,
+                    "stage": 0,
+                    "status": "invalid_action_class",
+                    "reason": f"Invalid action_class '{action_class}' - must be actuate/observe/query"
+                }
+            action_class_filter = action_class
+            logging.info(f"Action class filter active: {action_class}")
+        
         # ===== STAGE 1: Preferred Domains =====
         preferred_tools = self._get_preferred_tools(intent)
+        
+        # Apply action_class filter to preferred tools
+        if action_class_filter and preferred_tools:
+            original_count = len(preferred_tools)
+            preferred_tools = [
+                t for t in preferred_tools
+                if t.get("capability_class", "actuate") == action_class_filter
+            ]
+            filtered_count = original_count - len(preferred_tools)
+            if filtered_count > 0:
+                logging.info(f"Action class filter: {filtered_count} tools filtered, {len(preferred_tools)} remain")
+            
+            if not preferred_tools:
+                # HARD FAIL: No tools match capability_class in preferred domains
+                logging.warning(f"Action class hard-fail: no '{action_class}' tools in preferred domains for '{intent}'")
+                return {
+                    "tool": None,
+                    "params": {},
+                    "confidence": 0.0,
+                    "domain_match": False,
+                    "stage": 1,
+                    "status": "capability_class_mismatch",
+                    "reason": f"No tools with capability_class='{action_class}' in preferred domains for intent '{intent}'"
+                }
         
         if preferred_tools:
             stage1_result = self._resolve_with_tools(
@@ -297,6 +344,31 @@ class ToolResolver:
                     "stage": 2,
                     "status": "capability_missing",
                     "reason": f"No suitable tools available for intent '{intent}'"
+                }
+        
+        # STEP 3: Apply ACTION CLASS FILTER (Phase 2)
+        # This is a HARD filter - no fallback if no tools match
+        if action_class_filter:
+            original_count = len(all_tools)
+            all_tools = [
+                t for t in all_tools
+                if t.get("capability_class", "actuate") == action_class_filter
+            ]
+            filtered_count = original_count - len(all_tools)
+            if filtered_count > 0:
+                logging.info(f"Stage 2 action class filter: {filtered_count} tools filtered, {len(all_tools)} remain")
+            
+            if not all_tools:
+                # HARD FAIL: No tools match capability_class in Stage 2
+                logging.warning(f"Stage 2 action class hard-fail: no '{action_class}' tools for intent '{intent}'")
+                return {
+                    "tool": None,
+                    "params": {},
+                    "confidence": 0.0,
+                    "domain_match": False,
+                    "stage": 2,
+                    "status": "capability_class_mismatch",
+                    "reason": f"No tools with capability_class='{action_class}' available for intent '{intent}'"
                 }
         
         stage2_result = self._resolve_with_tools(

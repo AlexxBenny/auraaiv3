@@ -69,6 +69,23 @@ class Tool(ABC):
     def requires_visual_confirmation(self) -> bool:
         """Does this tool require visual checks to confirm success?"""
         return False
+    
+    @property
+    def capability_class(self) -> str:
+        """Semantic classification of what this tool does.
+        
+        MUST be one of: "actuate", "observe", "query"
+        - actuate: causes change in world state (default)
+        - observe: reads world state without modification
+        - query: pure info request
+        
+        This is used as a HARD FILTER in ToolResolver. Only tools whose
+        capability_class matches the PlannedAction's action_class will
+        be considered. If no tools match, resolution FAILS LOUDLY.
+        
+        Override in subclasses. Default is "actuate" for backwards compatibility.
+        """
+        return "actuate"
 
     # =========================================================================
     # MANDATORY PRECONDITIONS - Enforced by ToolExecutor, NOT LLM
@@ -163,6 +180,7 @@ class Tool(ABC):
             "stabilization_time_ms": self.stabilization_time_ms,
             "reversible": self.reversible,
             "requires_visual_confirmation": self.requires_visual_confirmation,
+            "capability_class": self.capability_class,  # Phase 2: semantic filter
             # Preconditions (enforced by executor, not LLM)
             "requires_focus": self.requires_focus,
             "requires_active_app": self.requires_active_app,

@@ -69,6 +69,17 @@ class Assistant:
         except Exception as e:
             logging.error(f"Error in main loop: {e}")
             print(f"❌ Error: {e}")
+        finally:
+            # Gracefully shut down browser session manager
+            self._shutdown_browser()
+    
+    def _shutdown_browser(self):
+        """Gracefully shut down browser session manager if active."""
+        try:
+            from core.browser_session_manager import BrowserSessionManager
+            BrowserSessionManager.get().shutdown()
+        except Exception as e:
+            logging.debug(f"Browser shutdown (may not have been used): {e}")
     
     def _display_result(self, result: Dict[str, Any]):
         """Display execution result"""

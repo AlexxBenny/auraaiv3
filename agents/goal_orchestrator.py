@@ -114,8 +114,10 @@ class GoalOrchestrator:
         resolution = resolver.resolve(
             description=action.description,
             intent=action.intent,
-            context=context
+            context=context,
+            action_class=action.action_class  # Phase 2: semantic filter
         )
+        logging.info(f"DEBUG: _resolve_and_execute: action_class={action.action_class}")
         
         tool_name = resolution.get("tool")
         params = resolution.get("params", {})
@@ -430,7 +432,8 @@ class GoalOrchestrator:
                 description=action.description,
                 args=action.args,
                 expected_effect=action.expected_effect,
-                depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on]
+                depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on],
+                action_class=action.action_class  # Phase 2: MUST copy this!
             )
             
             edges[prefixed_id] = [f"g{goal_idx}_{d}" for d in action.depends_on]
@@ -464,7 +467,8 @@ class GoalOrchestrator:
                     description=action.description,
                     args=action.args,
                     expected_effect=action.expected_effect,
-                    depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on]
+                    depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on],
+                    action_class=action.action_class  # Phase 2: MUST copy this!
                 )
                 
                 edges[prefixed_id] = [f"g{goal_idx}_{d}" for d in action.depends_on]
@@ -502,7 +506,8 @@ class GoalOrchestrator:
                     description=action.description,
                     args=action.args,
                     expected_effect=action.expected_effect,
-                    depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on]
+                    depends_on=[f"g{goal_idx}_{d}" for d in action.depends_on],
+                    action_class=action.action_class  # Phase 2: MUST copy this!
                 )
                 
                 edges[prefixed_id] = [f"g{goal_idx}_{d}" for d in action.depends_on]

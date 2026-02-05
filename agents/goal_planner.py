@@ -58,6 +58,16 @@ class PlannedAction:
     INVARIANT: This is an ABSTRACT action, not a concrete tool call.
     The intent + description are resolved to a concrete tool by ToolResolver
     in Phase 3 (GoalOrchestrator._resolve_and_execute).
+    
+    action_class (Phase 2):
+        Semantic classification of what kind of side effect this action has.
+        MUST be one of: "actuate", "observe", "query"
+        - actuate: causes change in world state (navigate, write, click)
+        - observe: reads world state (get_title, read_file)
+        - query: pure info request (no side effects)
+        
+        This is a HARD FILTER in ToolResolver - only tools with matching
+        capability_class will be considered.
     """
     action_id: str
     intent: str            # Abstract intent (e.g., "system_control", "file_operation")
@@ -65,6 +75,7 @@ class PlannedAction:
     args: Dict[str, Any]   # Semantic args (not tool-specific)
     expected_effect: str
     depends_on: List[str] = field(default_factory=list)
+    action_class: Optional[str] = None  # "actuate" | "observe" | "query"
 
 
 @dataclass
@@ -293,7 +304,8 @@ class GoalPlanner:
                 "url": url,  # Pre-computed for ToolResolver
                 "browser": browser_hint  # Browser preference from user
             },
-            expected_effect=f"{platform}_search_results_visible"
+            expected_effect=f"{platform}_search_results_visible",
+            action_class="actuate"  # Navigation = changes world state
         )
         
         plan = Plan(
@@ -303,6 +315,7 @@ class GoalPlanner:
         )
         
         logging.info(f"GoalPlanner: browser_search → abstract action (search:{platform}:{query[:30]})")
+        logging.info(f"DEBUG PLANNER: action.action_class = {action.action_class}")
         
         return PlanResult(status="success", plan=plan)
     
@@ -325,7 +338,8 @@ class GoalPlanner:
             intent=GOAL_TO_INTENT["browser_navigate"],
             description=f"navigate:{url}",
             args={"url": url},
-            expected_effect="url_loaded"
+            expected_effect="url_loaded",
+            action_class="actuate"  # Navigation = changes world state
         )
         
         plan = Plan(
@@ -335,6 +349,7 @@ class GoalPlanner:
         )
         
         logging.info(f"GoalPlanner: browser_navigate → abstract action ({url})")
+        logging.info(f"DEBUG PLANNER: action.action_class = {action.action_class}")
         
         return PlanResult(status="success", plan=plan)
     

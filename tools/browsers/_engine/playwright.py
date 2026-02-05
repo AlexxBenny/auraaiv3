@@ -149,10 +149,21 @@ class PlaywrightEngine(AbstractBrowserBackend):
         except Exception as e:
             logging.warning(f"Error closing browser: {e}")
     
-    def __del__(self):
-        """Cleanup on destruction."""
-        if self._sync_playwright:
+    def shutdown(self) -> None:
+        """Gracefully stop Playwright.
+        
+        CRITICAL: sync_playwright().start() MUST be matched with .stop().
+        """
+        if self._playwright:
             try:
                 self._playwright.stop()
-            except Exception:
-                pass
+                logging.info("Playwright engine stopped")
+            except Exception as e:
+                logging.warning(f"Error stopping Playwright: {e}")
+            finally:
+                self._playwright = None
+                self._sync_playwright = None
+    
+    def __del__(self):
+        """Cleanup on destruction (fallback)."""
+        self.shutdown()

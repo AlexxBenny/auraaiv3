@@ -118,6 +118,17 @@ class BrowserSessionManager:
                 logging.info(f"Reusing existing session: {session_id}")
                 return existing
             else:
+                # Phase 2.1: Check if context is still alive - recover page instead of recreating
+                if existing.context:
+                    try:
+                        # Context is the authority, page is ephemeral
+                        new_page = existing.context.new_page()
+                        existing.page = new_page
+                        logging.info(f"Recovered page in session {session_id} (context was still alive)")
+                        return existing
+                    except Exception as e:
+                        logging.info(f"Context also closed for session {session_id}: {e}")
+                
                 logging.info(f"Session {session_id} is stale, recreating")
                 self._cleanup_session(session_id)
         
@@ -203,3 +214,22 @@ class BrowserSessionManager:
             }
             for sid, s in self._sessions.items()
         }
+    
+    def shutdown(self) -> None:
+        """Gracefully shut down all sessions and Playwright.
+        
+        CRITICAL: sync_playwright().start() MUST be matched with .stop().
+        Call this on program exit.
+        """
+        # Close all sessions first
+        self.close_all()
+        
+        # Shut down the engine (stops Playwright)
+        if self._engine:
+            try:
+                self._engine.shutdown()
+            except Exception as e:
+                logging.warning(f"Error shutting down engine: {e}")
+            self._engine = None
+        
+        logging.info("BrowserSessionManager shutdown complete")
