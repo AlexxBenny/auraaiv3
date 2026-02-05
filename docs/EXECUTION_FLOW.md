@@ -286,58 +286,54 @@ class PlanGraph:
 
 ---
 
-## Container Stack & Scope Switching
+## Scope-Based Dependency Architecture
 
 **File:** [`agents/goal_interpreter.py`](file:///d:/aura/AURA/agents/goal_interpreter.py)  
-**Methods:** `_fix_container_dependencies()`, `_detect_explicit_anchor()`
+**Methods:** `_derive_dependencies_from_scope()`, `_derive_anchor_from_scope()`
 
-### Two Concepts
+### Single Source of Truth
 
-| Concept | What It Controls | Trigger |
-|---------|------------------|---------|
-| **Container Stack** | "inside it" nesting | Folder creation |
-| **Scope Switching** | Location changes | Explicit anchor in user text |
+**Invariant:** `scope` is the sole authority for containment and ordering.
 
-### Container Stack
+| Scope Pattern | Meaning | Dependency | Anchor |
+|--------------|---------|------------|--------|
+| `"root"` | Independent at workspace | None | None (WORKSPACE) |
+| `"inside:X"` | Contained in goal X | Yes (X) | Inherited via dep |
+| `"drive:D"` | Located on D drive | None | DRIVE_D |
+| `"after:X"` | Ordered after goal X | Yes (X) | None |
 
-Fixes "inside it" binding to first container instead of most recent.
+### Dependency Derivation
 
-```
-g0: mkdir space        → stack = [0]
-g1: mkdir galaxy       → stack = [0, 1], parent = 0 (correct)
-g2: create milkyway    → stack = [0, 1], parent = 1 (FIXED from 0)
-```
-
-### Scope Switching
-
-Explicit location (linguistically grounded) starts a new scope.
-
-```
-User: "create space in root folder, galaxy in d drive, milkyway inside it"
-
-Scope 0: WORKSPACE      Scope 1: DRIVE_D
-   └─ space                └─ galaxy
-                               └─ milkyway
-```
-
-### Explicit Anchor Detection
-
-**CRITICAL:** Only user text, NOT LLM-generated paths.
+Dependencies are derived **deterministically** from scope annotations:
 
 ```python
-# Detected from user_input.lower()
-"d drive" / "drive d" → DRIVE_D
-"desktop"            → DESKTOP
-"documents"          → DOCUMENTS
-"downloads"          → DOWNLOADS
-"root folder"        → WORKSPACE
+def _derive_dependencies_from_scope(goals_data):
+    for idx, goal in enumerate(goals_data):
+        scope = goal.get("scope", "root")
+        
+        if scope.startswith("inside:"):
+            parent_name = scope[7:]
+            parent_idx = name_to_idx[parent_name]
+            dependencies.append((idx, (parent_idx,)))
 ```
 
-### Key Invariant
+### Key Invariants
 
-> **Only language can change scope, not paths.**
+> **Anchors do NOT leak across scopes.**
 > 
-> LLM-generated absolute paths are NOT treated as scope switches.
+> - `scope="drive:D"` sets anchor only for that goal
+> - `scope="inside:X"` inherits anchor via dependency
+> - `scope="root"` resets to WORKSPACE
+
+### Example: Multi-scope Command
+
+```
+User: "create X in D drive and inside it Y, meanwhile create Z here"
+
+Goal 0 (X): scope="drive:D"  → anchor=DRIVE_D → D:\X
+Goal 1 (Y): scope="inside:X" → depends on 0   → D:\X\Y
+Goal 2 (Z): scope="root"     → anchor=None    → <workspace>\Z
+```
 
 ### Path Resolution Invariant
 

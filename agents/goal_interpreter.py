@@ -58,7 +58,10 @@ class Goal:
     content: Optional[str] = None       # File content, etc.
     object_type: Optional[str] = None   # "folder" | "file" for file_operation
     goal_id: Optional[str] = None       # Unique ID for action linking
-    parent_target: Optional[str] = None # Explicit parent by name ("inside X")
+    
+    # SCOPE-BASED DEPENDENCY (single source of truth)
+    # Allowed forms: "root", "inside:<target>", "drive:<letter>", "after:<target>"
+    scope: str = "root"
     
     # Path resolution fields (set by GoalOrchestrator, NOT by interpreter)
     base_anchor: Optional[str] = None   # WORKSPACE, DESKTOP, DRIVE_D, etc.
@@ -166,30 +169,17 @@ class GoalInterpreter:
                         "target": {"type": "string"},
                         "action": {"type": "string"},
                         "content": {"type": "string"},
-                        "parent_target": {
-                            "type": "string",
-                            "description": "Explicit parent folder name for 'inside X' patterns"
-                        },
                         "object_type": {
                             "type": "string",
                             "enum": ["folder", "file"],
                             "description": "For file_operation: whether target is folder or file"
+                        },
+                        "scope": {
+                            "type": "string",
+                            "description": "Semantic scope: 'root', 'inside:<target>', 'drive:<letter>', 'after:<target>'"
                         }
                     },
                     "required": ["goal_type"]
-                }
-            },
-            "dependencies": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "goal_idx": {"type": "integer"},
-                        "depends_on": {
-                            "type": "array",
-                            "items": {"type": "integer"}
-                        }
-                    }
                 }
             },
             "reasoning": {"type": "string"}
@@ -198,29 +188,36 @@ class GoalInterpreter:
     }
     
     FEW_SHOT_EXAMPLES = """
-## SEMANTIC GOAL EXTRACTION
+## SEMANTIC GOAL EXTRACTION WITH SCOPE-BASED DEPENDENCIES
 
-### independent_multi (truly independent goals)
+### SCOPE SEMANTICS (CRITICAL)
+- "root" = no parent dependency (default)
+- "inside:<target>" = this goal goes inside the named container
+- "drive:<letter>" = this goal is in a specific drive (no dependency, just location)
+- "after:<target>" = this goal runs after the named goal completes
+
+### DO NOT output dependencies array. DO NOT use goal indices.
+### Express ordering ONLY via scope field.
+
+### independent_multi (truly independent goals - all scope: "root")
 
 User: "open chrome and open spotify"
 → {
     "meta_type": "independent_multi",
     "goals": [
-        {"goal_type": "app_launch", "target": "chrome"},
-        {"goal_type": "app_launch", "target": "spotify"}
+        {"goal_type": "app_launch", "target": "chrome", "scope": "root"},
+        {"goal_type": "app_launch", "target": "spotify", "scope": "root"}
     ],
-    "dependencies": [],
-    "reasoning": "Two independent app launches"
+    "reasoning": "Two independent app launches, no ordering needed"
 }
 
 User: "increase volume and take a screenshot"
 → {
     "meta_type": "independent_multi", 
     "goals": [
-        {"goal_type": "system_control", "action": "volume_up"},
-        {"goal_type": "system_control", "action": "screenshot"}
+        {"goal_type": "system_control", "action": "volume_up", "scope": "root"},
+        {"goal_type": "system_control", "action": "screenshot", "scope": "root"}
     ],
-    "dependencies": [],
     "reasoning": "Two independent system control operations"
 }
 
@@ -228,10 +225,9 @@ User: "unmute and set brightness to 50"
 → {
     "meta_type": "independent_multi", 
     "goals": [
-        {"goal_type": "system_control", "action": "unmute"},
-        {"goal_type": "system_control", "action": "set_brightness", "target": "50"}
+        {"goal_type": "system_control", "action": "unmute", "scope": "root"},
+        {"goal_type": "system_control", "action": "set_brightness", "target": "50", "scope": "root"}
     ],
-    "dependencies": [],
     "reasoning": "Two independent system control: audio unmute and display brightness"
 }
 
@@ -239,137 +235,77 @@ User: "mute volume and lower brightness"
 → {
     "meta_type": "independent_multi", 
     "goals": [
-        {"goal_type": "system_control", "action": "mute"},
-        {"goal_type": "system_control", "action": "lower_brightness"}
+        {"goal_type": "system_control", "action": "mute", "scope": "root"},
+        {"goal_type": "system_control", "action": "lower_brightness", "scope": "root"}
     ],
-    "dependencies": [],
     "reasoning": "Two independent system control: audio mute and display"
 }
 
-User: "open notepad and open calculator"
-→ {
-    "meta_type": "independent_multi",
-    "goals": [
-        {"goal_type": "app_launch", "target": "notepad"},
-        {"goal_type": "app_launch", "target": "calculator"}
-    ],
-    "dependencies": [],
-    "reasoning": "Two independent app launches"
-}
-
-User: "play music and open spotify"
-→ {
-    "meta_type": "independent_multi",
-    "goals": [
-        {"goal_type": "media_control", "action": "play"},
-        {"goal_type": "app_launch", "target": "spotify"}
-    ],
-    "dependencies": [],
-    "reasoning": "Media playback control and app launch are independent"
-}
-
-User: "pause the music and next track"
-→ {
-    "meta_type": "independent_multi",
-    "goals": [
-        {"goal_type": "media_control", "action": "pause"},
-        {"goal_type": "media_control", "action": "next_track"}
-    ],
-    "dependencies": [],
-    "reasoning": "Two media control operations"
-}
-
-User: "take a screenshot and mute"
-→ {
-    "meta_type": "independent_multi",
-    "goals": [
-        {"goal_type": "system_control", "action": "screenshot"},
-        {"goal_type": "system_control", "action": "mute"}
-    ],
-    "dependencies": [],
-    "reasoning": "Screenshot and mute are independent system control operations"
-}
-
-### dependent_multi (goals with dependencies)
-### CRITICAL: targets must be RAW names only, NEVER include parent paths!
-### PathResolver will combine parent + child at resolution time.
+### dependent_multi (goals with scope-based dependencies)
+### CRITICAL: Use scope to express containment and ordering!
 
 User: "create a folder called alex in D drive and create a ppt inside it"
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "alex"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "presentation.pptx"}
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "alex", "scope": "drive:D"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "presentation.pptx", "scope": "inside:alex"}
     ],
-    "dependencies": [{"goal_idx": 1, "depends_on": [0]}],
-    "reasoning": "File creation depends on folder existing. Target is just the name, not the full path."
+    "reasoning": "File goes inside alex folder. scope:inside:alex expresses containment."
 }
 
 User: "create folder space and inside it folder galaxy and inside it file milkyway"
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "galaxy"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "milkyway.txt"}
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space", "scope": "root"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "galaxy", "scope": "inside:space"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "milkyway.txt", "scope": "inside:galaxy"}
     ],
-    "dependencies": [
-        {"goal_idx": 1, "depends_on": [0]},
-        {"goal_idx": 2, "depends_on": [1]}
-    ],
-    "reasoning": "Each item is inside the most recently created container. Targets are raw names only!"
+    "reasoning": "Nested containment: galaxy inside space, milkyway inside galaxy. Each scope references its parent."
 }
 
 User: "create folder X, create folder Y, create folder Z inside X"
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "parent_target": "X"}
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X", "scope": "root"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y", "scope": "root"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "scope": "inside:X"}
     ],
-    "dependencies": [
-        {"goal_idx": 2, "depends_on": [0]}
-    ],
-    "reasoning": "Z explicitly refers to X by name, not the most recent folder Y. Use parent_target for explicit references."
+    "reasoning": "X and Y are SIBLINGS (both root). Z explicitly goes inside X. Enumeration = same scope."
 }
 
 User: "create two folders named X and Y. Inside X create folder Z"
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "parent_target": "X"}
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X", "scope": "root"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y", "scope": "root"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "scope": "inside:X"}
     ],
-    "dependencies": [
-        {"goal_idx": 2, "depends_on": [0]}
-    ],
-    "reasoning": "X and Y are SIBLINGS (no dependency between them). Z is inside X via parent_target. 'Inside X' only applies to Z, not Y."
+    "reasoning": "X and Y are SIBLINGS - enumeration means same scope. 'Inside X' only applies to Z."
 }
 
-User: "download the file and then open it"
+User: "Create folder A. Create folder B in D drive. Inside A create C."
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "download"},
-        {"goal_type": "app_action", "action": "open"}
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "A", "scope": "root"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "B", "scope": "drive:D"},
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "C", "scope": "inside:A"}
     ],
-    "dependencies": [{"goal_idx": 1, "depends_on": [0]}],
-    "reasoning": "Opening depends on download completing"
+    "reasoning": "A at root, B in D drive (different location), C inside A. drive:D is location, not dependency."
 }
 
-### IMPORTANT: Single goals should rarely come here
-### QueryClassifier should route most to single path directly
-### But if they do arrive, handle gracefully:
+### Single goals
 
 User: "open youtube and search nvidia"
 → {
     "meta_type": "single",
     "goals": [
-        {"goal_type": "browser_search", "platform": "youtube", "query": "nvidia"}
+        {"goal_type": "browser_search", "platform": "youtube", "query": "nvidia", "scope": "root"}
     ],
-    "dependencies": [],
     "reasoning": "One semantic goal: search nvidia on youtube"
 }
 
@@ -377,10 +313,9 @@ User: "create a folder named space in D drive"
 → {
     "meta_type": "single",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space"}
+        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space", "scope": "drive:D"}
     ],
-    "dependencies": [],
-    "reasoning": "Single file operation with explicit location. Location is detected separately."
+    "reasoning": "Single file operation with explicit location via scope."
 }
 """
     
@@ -434,176 +369,83 @@ User: "create a folder named space in D drive"
                 f"High-confidence QC requires multi-goal output."
             )
     
-    def _detect_explicit_anchor(self, user_input: str, goal_idx: int) -> Optional[str]:
-        """Detect explicit location anchor from user's LINGUISTIC input.
-        
-        CRITICAL: Only use user text, NOT LLM-generated paths.
-        LLMs sometimes emit absolute paths without user intent.
-        
-        An explicit anchor exists only if linguistically grounded:
-        - "in D drive", "on desktop", "in documents"
-        
-        Args:
-            user_input: Original user command text
-            goal_idx: Index of goal being processed (for future position-based logic)
-            
-        Returns:
-            Anchor name if explicit location found, None otherwise
-        """
-        text = user_input.lower()
-        
-        # Drive letters (most common explicit anchors)
-        if "d drive" in text or "drive d" in text:
-            return "DRIVE_D"
-        if "c drive" in text or "drive c" in text:
-            return "DRIVE_C"
-        if "e drive" in text or "drive e" in text:
-            return "DRIVE_E"
-        
-        # Common user directories
-        if "desktop" in text:
-            return "DESKTOP"
-        if "documents" in text or "my documents" in text:
-            return "DOCUMENTS"
-        if "downloads" in text:
-            return "DOWNLOADS"
-        
-        # Root folder / workspace
-        if "root folder" in text or "root directory" in text:
-            return "WORKSPACE"
-        
-        return None
     
-    def _fix_container_dependencies(
+    def _derive_dependencies_from_scope(
         self, 
-        goals_data: List[Dict[str, Any]], 
-        deps_data: List[Dict[str, Any]],
-        user_input: str
-    ) -> List[Dict[str, Any]]:
-        """Fix container dependencies with multi-scope support.
+        goals_data: List[Dict[str, Any]]
+    ) -> List[Tuple[int, Tuple[int, ...]]]:
+        """Derive dependencies deterministically from scope annotations.
         
-        Handles two distinct concepts:
-        1. Container Stack: "inside it" nesting within a scope
-        2. Scope Segments: "in D drive", "on desktop" location switches
+        THIS IS THE SINGLE AUTHORITY FOR DEPENDENCY CREATION.
+        No LLM dependencies. No repair logic. Pure scope → DAG conversion.
         
-        An explicit location (linguistically grounded) starts a new scope.
-        "inside it" binds to most recent container within current scope.
-        
-        INVARIANT: Only language can change scope, not LLM-generated paths.
+        Rules:
+        - scope="root" → no dependency
+        - scope="inside:<target>" → depends on goal where target=<target>
+        - scope="drive:<letter>" → no dependency (just location)
+        - scope="after:<target>" → depends on goal where target=<target>
         
         Args:
-            goals_data: List of goal dicts from LLM
-            deps_data: List of dependency dicts from LLM
-            user_input: Original user command (for anchor detection)
+            goals_data: List of goal dicts with scope annotations
             
         Returns:
-            Corrected dependency list
+            Dependencies as tuple of (goal_idx, (depends_on...))
         """
-        # Build initial dependency map: goal_idx → parent_idx
-        dep_map: Dict[int, int] = {}
-        for d in deps_data:
-            goal_idx = d.get("goal_idx")
-            depends_on = d.get("depends_on", [])
-            if goal_idx is not None and depends_on:
-                dep_map[goal_idx] = depends_on[0]
+        # Build target → idx map
+        name_to_idx: Dict[str, int] = {}
+        for idx, g in enumerate(goals_data):
+            target = g.get("target")
+            if target:
+                name_to_idx[target] = idx
         
-        # Scope tracking
-        # Each scope has: base_anchor, container_stack (list of goal indices)
-        current_scope_anchor: Optional[str] = None
-        current_container_stack: List[int] = []
-        
-        # Detect if user mentioned any explicit anchors
-        explicit_anchor = self._detect_explicit_anchor(user_input, 0)
-        
-        corrected: Dict[int, List[int]] = {}
+        dependencies: List[Tuple[int, Tuple[int, ...]]] = []
         
         for idx, goal in enumerate(goals_data):
-            goal_type = goal.get("goal_type")
-            object_type = goal.get("object_type")
+            scope = goal.get("scope", "root")
             
-            # Only process file_operation goals
-            if goal_type != "file_operation":
+            if scope == "root" or scope.startswith("drive:"):
+                # No dependency
                 continue
             
-            # NEW: Explicit parent_target overrides stack behavior
-            # "inside X" → binds to goal named X
-            parent_target = goal.get("parent_target")
-            if parent_target:
-                # Build name → idx map
-                name_to_idx = {g.get("target"): i for i, g in enumerate(goals_data)}
-                if parent_target in name_to_idx:
-                    corrected[idx] = [name_to_idx[parent_target]]
-                    logging.debug(
-                        f"ExplicitParent: g{idx} bound to g{name_to_idx[parent_target]} "
-                        f"(parent_target='{parent_target}')"
-                    )
-                    # Still push folders to stack for future "inside it"
-                    if object_type == "folder":
-                        current_container_stack.append(idx)
-                    continue
-            
-            # Check if this goal's target suggests a NEW scope
-            # We detect scope change by looking at LLM's target AND user text
-            target = goal.get("target", "")
-            goal_anchor = None
-            
-            # If target looks like it's in a different drive, check if user mentioned it
-            if target and len(target) >= 2 and target[1] == ":":
-                drive_letter = target[0].upper()
-                expected_anchor = f"DRIVE_{drive_letter}"
-                # Only treat as scope switch if user linguistically mentioned this drive
-                if expected_anchor == explicit_anchor and current_scope_anchor != expected_anchor:
-                    goal_anchor = expected_anchor
-            
-            # If we found a linguistic scope switch, start new scope
-            if goal_anchor is not None:
-                current_scope_anchor = goal_anchor
-                current_container_stack = []  # Reset stack for new scope
-                logging.debug(f"ScopeSwitch: New scope {goal_anchor} at goal {idx}")
-            elif current_scope_anchor is None:
-                # Default scope: WORKSPACE
-                current_scope_anchor = "WORKSPACE"
-            
-            # Get LLM-chosen parent
-            llm_parent = dep_map.get(idx)
-            
-            # Determine correct parent within current scope
-            # KEY RULE: If LLM says no parent (llm_parent is None), respect that (sibling)
-            # Only apply stack logic when LLM explicitly chose a parent
-            if llm_parent is not None:
-                if current_container_stack:
-                    top_container = current_container_stack[-1]
-                    first_container = current_container_stack[0]
-                    
-                    # Rewrite if LLM bound to first but newer exists in this scope
-                    if (
-                        llm_parent == first_container
-                        and top_container != first_container
-                    ):
-                        corrected[idx] = [top_container]
+            if scope.startswith("inside:"):
+                parent_name = scope[7:]  # Remove "inside:"
+                if parent_name in name_to_idx:
+                    parent_idx = name_to_idx[parent_name]
+                    if parent_idx < idx:  # Forward reference only
+                        dependencies.append((idx, (parent_idx,)))
                         logging.debug(
-                            f"ContainerStack: Fixed g{idx} from g{llm_parent} to g{top_container} "
-                            f"(scope={current_scope_anchor})"
+                            f"ScopeDerived: g{idx} depends on g{parent_idx} "
+                            f"(inside:{parent_name})"
                         )
-                    elif llm_parent in current_container_stack:
-                        # LLM parent is valid within current scope
-                        corrected[idx] = [llm_parent]
                     else:
-                        # LLM parent not in scope, keep LLM's choice (trust LLM)
-                        corrected[idx] = [llm_parent]
+                        logging.warning(
+                            f"ScopeError: g{idx} references future goal '{parent_name}' - skipped"
+                        )
                 else:
-                    # No container stack, use LLM's choice
-                    corrected[idx] = [llm_parent]
-            # ELSE: llm_parent is None → sibling (no dependency), don't add to corrected
+                    logging.warning(
+                        f"ScopeError: g{idx} references unknown target '{parent_name}'"
+                    )
             
-            # Folder → push onto current scope's container stack
-            if object_type == "folder":
-                current_container_stack.append(idx)
+            elif scope.startswith("after:"):
+                prereq_name = scope[6:]  # Remove "after:"
+                if prereq_name in name_to_idx:
+                    prereq_idx = name_to_idx[prereq_name]
+                    if prereq_idx < idx:  # Forward reference only
+                        dependencies.append((idx, (prereq_idx,)))
+                        logging.debug(
+                            f"ScopeDerived: g{idx} depends on g{prereq_idx} "
+                            f"(after:{prereq_name})"
+                        )
+                    else:
+                        logging.warning(
+                            f"ScopeError: g{idx} references future goal '{prereq_name}' - skipped"
+                        )
+                else:
+                    logging.warning(
+                        f"ScopeError: g{idx} references unknown target '{prereq_name}'"
+                    )
         
-        return [
-            {"goal_idx": idx, "depends_on": parents}
-            for idx, parents in corrected.items()
-        ]
+        return dependencies
     
     def interpret(
         self, 
@@ -642,7 +484,7 @@ AUTHORITY RULES:
         
         prompt = f"""You are a semantic goal interpreter.
 
-Your job: Understand what the user is trying to achieve and extract structured goals.
+Your job: Understand what the user is trying to achieve and extract structured goals with scope annotations.
 {qc_context}
 {self.FEW_SHOT_EXAMPLES}
 
@@ -653,16 +495,16 @@ User: "{user_input}"
 
 RULES:
 1. Extract SEMANTIC GOALS, not actions
-2. independent_multi = goals that don't depend on each other
-3. dependent_multi = later goals need earlier goals to complete first
+2. independent_multi = goals that don't depend on each other (all scope: "root")
+3. dependent_multi = later goals have containment/ordering (use scope: "inside:<target>" or "after:<target>")
 4. Use correct goal_type from the closed set
-5. If goals are related to same context, consider if they're really ONE goal
-6. CRITICAL: Targets must be RAW names only, NOT full paths
+5. CRITICAL: Targets must be RAW names only, NOT full paths
+6. DO NOT output dependencies array - use scope field instead
+7. Express ordering and containment ONLY via scope
 
 Return JSON with:
 - meta_type: "single" | "independent_multi" | "dependent_multi"
-- goals: list of goal objects with goal_type and relevant fields
-- dependencies: list of {{goal_idx, depends_on: [...]}} for dependent_multi
+- goals: list of goal objects with goal_type, scope, and relevant fields
 - reasoning: brief explanation
 """
         
@@ -671,31 +513,21 @@ Return JSON with:
             
             meta_type = result.get("meta_type", "single")
             goals_data = result.get("goals", [])
-            deps_data = result.get("dependencies", [])
             reasoning = result.get("reasoning", "")
             
             # AUTHORITY CONTRACT: Enforce QC topology when confident
             self._enforce_topology(qc_output, goals_data)
             
-            # FIX: Correct container scope for dependent_multi goals
-            # LLMs often bind "inside it" to first container instead of most recent
-            # Also handles multi-scope commands with different explicit locations
+            # DEBUG: Log raw LLM output
+            logging.info(f"DEBUG: LLM goals (with scope): {goals_data}")
             
-            # DEBUG: Log raw LLM output before fix
-            logging.info(f"DEBUG: LLM goals BEFORE fix: {goals_data}")
-            logging.info(f"DEBUG: LLM deps BEFORE fix: {deps_data}")
+            # DETERMINISTIC DEPENDENCY DERIVATION (single authority)
+            # No LLM dependencies. Pure scope → DAG conversion.
+            dependencies = tuple(self._derive_dependencies_from_scope(goals_data))
             
-            if meta_type == "dependent_multi" and deps_data:
-                deps_data = self._fix_container_dependencies(goals_data, deps_data, user_input)
+            logging.info(f"DEBUG: Derived dependencies: {dependencies}")
             
-            # DEBUG: Log after fix
-            logging.info(f"DEBUG: deps AFTER fix: {deps_data}")
-            
-            # Detect explicit location anchor from user input
-            explicit_anchor = self._detect_explicit_anchor(user_input, 0)
-            logging.info(f"DEBUG: Detected explicit_anchor: {explicit_anchor}")
-            
-            # Build Goal objects with unique IDs
+            # Build Goal objects with unique IDs and scope
             goals = tuple(
                 Goal(
                     goal_type=g.get("goal_type", "app_launch"),
@@ -706,9 +538,10 @@ Return JSON with:
                     content=g.get("content"),
                     object_type=g.get("object_type"),
                     goal_id=f"g{i}",  # Unique ID for action linking
-                    parent_target=g.get("parent_target"),  # CRITICAL: Extract parent_target!
-                    # Attach explicit anchor to file_operation goals only
-                    base_anchor=explicit_anchor if g.get("goal_type") == "file_operation" else None
+                    scope=g.get("scope", "root"),  # SCOPE-BASED: single source of truth
+                    # INVARIANT: base_anchor derived ONLY from scope, not global detection
+                    base_anchor=self._derive_anchor_from_scope(g.get("scope", "root"))
+                        if g.get("goal_type") == "file_operation" else None
                 )
                 for i, g in enumerate(goals_data)
             )
@@ -717,14 +550,8 @@ Return JSON with:
             for i, g in enumerate(goals):
                 logging.info(
                     f"DEBUG: Goal[{i}] type={g.goal_type}, target={g.target}, "
-                    f"parent_target={g.parent_target}, base_anchor={g.base_anchor}"
+                    f"scope={g.scope}, base_anchor={g.base_anchor}"
                 )
-            
-            # Build dependencies tuple
-            dependencies = tuple(
-                (d.get("goal_idx", 0), tuple(d.get("depends_on", [])))
-                for d in deps_data
-            )
             
             # Handle edge case: no goals extracted
             if not goals:
@@ -741,7 +568,7 @@ Return JSON with:
             
             logging.info(
                 f"GoalInterpreter: '{user_input[:50]}...' → {meta_type} "
-                f"({len(goals)} goal(s))"
+                f"({len(goals)} goal(s), {len(dependencies)} dep(s))"
             )
             logging.debug(f"Goals: {goals}")
             
@@ -755,3 +582,26 @@ Return JSON with:
                 goals=(Goal(goal_type="app_launch", target=user_input),),
                 dependencies=()
             )
+    
+    def _derive_anchor_from_scope(self, scope: str) -> Optional[str]:
+        """Derive base_anchor from scope annotation.
+        
+        INVARIANT: Anchors do NOT leak across scopes.
+        - drive:X → DRIVE_X (explicit from scope)
+        - inside:X → None (inherit via dependency in orchestrator)
+        - root → None (default to WORKSPACE in orchestrator)
+        - after:X → None (ordering only, no anchor)
+        
+        Args:
+            scope: The scope string (e.g., "drive:D", "root")
+            
+        Returns:
+            Anchor name (DRIVE_D, etc.) or None for inheritance/default
+        """
+        if scope.startswith("drive:"):
+            letter = scope[6:].upper()
+            return f"DRIVE_{letter}"
+        
+        # All other scopes: no explicit anchor
+        # Orchestrator handles inheritance via dependencies or defaults to WORKSPACE
+        return None

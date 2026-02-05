@@ -190,7 +190,7 @@ class GoalOrchestrator:
             deps = meta_goal.get_dependencies(idx)
             
             # DEBUG: Log dependency resolution
-            logging.info(f"DEBUG: Goal {idx} '{goal.target}' - deps={deps}, parent_target={goal.parent_target}")
+            logging.info(f"DEBUG: Goal {idx} '{goal.target}' - deps={deps}, scope={goal.scope}")
             
             if deps:
                 # Use first dependency's resolved path
@@ -224,6 +224,7 @@ class GoalOrchestrator:
                     content=goal.content,
                     object_type=goal.object_type,
                     goal_id=goal.goal_id,
+                    scope=goal.scope,  # SCOPE-BASED: preserve for downstream
                     base_anchor=resolved.base_anchor,
                     resolved_path=str(resolved.absolute_path)  # THE AUTHORITY
                 )
