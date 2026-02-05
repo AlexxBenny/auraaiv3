@@ -59,20 +59,15 @@ class MetaGoal:
 | `independent_multi` | Multiple unrelated goals | "open spotify and open chrome" |
 | `dependent_multi` | Goals with dependencies | "create folder X, then create file in X" |
 
-### 2.2 Goal (from GoalPlanner contract)
+### 2.2 Goal (from GoalInterpreter contract)
 
 ```python
 @dataclass(frozen=True)
 class Goal:
-    goal_type: Literal[
-        "browser_search",
-        "browser_navigate", 
-        "app_launch",
-        "app_action",
-        "file_operation",
-        "system_query"
-    ]
-    # ... (same as GoalPlanner contract)
+    goal_type: Literal[...]
+    scope: str = "root"  # "root", "inside:X", "drive:D"
+    target: Optional[str]
+    # ...
 ```
 
 ---
@@ -315,8 +310,8 @@ OrchestrationResult(
 MetaGoal(
     meta_type="dependent_multi",
     goals=(
-        Goal(goal_type="file_operation", action="mkdir", path="D:\\alex"),
-        Goal(goal_type="file_operation", action="create", path="D:\\alex\\cars.pptx")
+        Goal(goal_type="file_operation", action="mkdir", target="alex", scope="drive:D"),
+        Goal(goal_type="file_operation", action="create", target="cars.pptx", scope="inside:alex")
     ),
     dependencies={1: (0,)}  # Goal 1 depends on Goal 0
 )

@@ -77,10 +77,9 @@ User: "snap chrome to left and minimize notepad"
 → {
     "meta_type": "independent_multi",
     "goals": [
-        {"goal_type": "window_management", "action": "snap_left", "target": "chrome"},
-        {"goal_type": "window_management", "action": "minimize", "target": "notepad"}
+        {"goal_type": "window_management", "action": "snap_left", "target": "chrome", "scope": "root"},
+        {"goal_type": "window_management", "action": "minimize", "target": "notepad", "scope": "root"}
     ],
-    "dependencies": [],
     "reasoning": "Two independent window operations"
 }
 ```

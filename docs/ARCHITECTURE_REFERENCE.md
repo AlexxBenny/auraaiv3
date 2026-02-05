@@ -76,7 +76,8 @@ _process_single()
 _process_goal()
     ├─► GoalInterpreter.interpret()
     │       ├─► LLM extracts goals + dependencies
-    │       ├─► _fix_container_dependencies()  ◄── Container Stack
+    │       ├─► LLM extracts goals + dependencies (scope-based)
+    │       ├─► _derive_dependencies_from_scope()  ◄── Deterministic DAG
     │       └─► Returns MetaGoal
     │
     ├─► GoalOrchestrator.orchestrate()
@@ -167,14 +168,13 @@ tools/
 class Goal:
     goal_type: Literal["browser_search", "browser_navigate", "app_launch", 
                        "app_action", "file_operation", "system_query"]
-    platform: Optional[str]      # youtube, google
-    query: Optional[str]         # search query
+    scope: str = "root"          # "root", "inside:X", "drive:D"
     target: Optional[str]        # semantic path/URL/app name
     action: Optional[str]        # create, delete, move
     content: Optional[str]       # file content
     object_type: Optional[str]   # folder, file
     goal_id: Optional[str]       # g0, g1, g2
-    base_anchor: Optional[str]   # WORKSPACE, DESKTOP, DRIVE_D
+    base_anchor: Optional[str]   # WORKSPACE, DESKTOP, DRIVE_D (derived from scope)
     resolved_path: Optional[str] # AUTHORITY after resolution
 ```
 
@@ -245,21 +245,19 @@ GoalPlanner uses goal.resolved_path (AUTHORITY)
 Tool receives absolute path
 ```
 
-### Container Stack Fix
+### Scope-Based Dependency Architecture
 
 **File**: [`agents/goal_interpreter.py`](file:///d:/aura/AURA/agents/goal_interpreter.py)  
-**Method**: `_fix_container_dependencies()`
+**Method**: `_derive_dependencies_from_scope()`
 
-Fixes "inside it" anaphora binding:
-- LLM often binds to FIRST container
-- Fix binds to MOST RECENT container
-- Only rewrites when necessary
+Dependency generation is now **deterministic based on scope**:
+- **"root"**: Independent goal
+- **"inside:X"**: Depends on goal X (inherits anchor)
+- **"drive:D"**: Explicit anchor (no dependency)
+- **"after:X"**: Explicit ordering dependency
 
-```python
-# Rewrite condition:
-if llm_parent == first_container and top_container != first_container:
-    corrected[idx] = [top_container]
-```
+**Invariant**:
+> **Scopes define dependencies; dependencies define inheritance; nothing else leaks.**
 
 ---
 
@@ -318,12 +316,12 @@ core/orchestrator.py
 3. **Absolute After Resolution**: `goal.resolved_path` is always absolute
 4. **Planner Trusts Resolver**: `GoalPlanner` never calls `.resolve()`
 
-### Container Scope Invariants
+### Scope-Based Invariants
 
-1. **Folders Push**: Folder creation pushes to container stack
-2. **Files Don't Push**: File creation doesn't affect stack
-3. **"Inside It" Binds to Top**: Most recent container, not first
-4. **Explicit Location = New Scope**: (Future) Different locations = different stacks
+1. **Scope is Authority**: Containment is defined ONLY by `scope` field
+2. **Anchors Don't Leak**: `drive:D` applies only to that goal (and children via inheritance)
+3. **Root Resets**: `scope="root"` always implies WORKSPACE anchor
+4. **Deterministic Derivation**: No LLM "repair" steps; dependencies are derived purely from scope annotations
 
 ### Safety Invariants
 

@@ -138,35 +138,39 @@ class Goal:
         "file_operation",      # File CRUD
         "system_query"         # Get information
     ]
+    scope: str = "root"        # "root", "inside:X", "drive:D", "after:X"
+    target: Optional[str]      # semantic path/URL/app name
+    # ... other fields
 ```
 
 **No dynamic goal types.** This set is exhaustive for Phase 1.
 
 ### 3.5 Examples
 
-**Input:** `"open spotify and open chrome"`
-```python
-MetaGoal(
-    meta_type="independent_multi",
-    goals=(
-        Goal(goal_type="app_launch", target="spotify"),
-        Goal(goal_type="app_launch", target="chrome")
-    ),
-    dependencies={}
-)
-```
-
 **Input:** `"create folder alex in D drive and create ppt inside it"`
 ```python
 MetaGoal(
     meta_type="dependent_multi",
     goals=(
-        Goal(goal_type="file_operation", action="mkdir", path="D:\\alex"),
-        Goal(goal_type="file_operation", action="create", path="D:\\alex\\presentation.pptx")
+        Goal(goal_type="file_operation", action="mkdir", target="alex", scope="drive:D"),
+        Goal(goal_type="file_operation", action="create", target="presentation.pptx", scope="inside:alex")
     ),
-    dependencies={1: (0,)}  # Goal 1 depends on Goal 0
+    dependencies={1: (0,)}  # Derived from scope "inside:alex"
 )
 ```
+
+### 3.6 Scope & Dependency Derivation
+
+**Single Authority:** `scope` field.
+
+| Scope | Meaning | Dependency | Anchor |
+|-------|---------|------------|--------|
+| `root` | Independent | None | WORKSPACE |
+| `drive:D` | Explicit Drive | None | DRIVE_D |
+| `inside:X` | Contained in X | Yes (X) | Inherited |
+| `after:X` | Ordered after X | Yes (X) | None |
+
+Dependencies are **deterministically derived** from the `scope` field. The LLM does NOT output dependencies directly.
 
 ### 3.6 Guarantees
 

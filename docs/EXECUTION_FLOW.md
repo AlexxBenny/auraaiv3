@@ -131,8 +131,9 @@ _process_goal()
     │
     ├─► GoalInterpreter.interpret()
     │       ├─► LLM extracts goals + dependencies
-    │       ├─► _fix_container_dependencies()  ◄── Container Stack Fix
-    │       │       └─► Corrects "inside it" anaphora binding
+    │       ├─► LLM extracts goals + dependencies
+    │       ├─► _derive_dependencies_from_scope()  ◄── Deterministic DAG
+    │       │       └─► Converts scope="inside:X" to dependency edge
     │       └─► Returns MetaGoal {meta_type, goals[], dependencies[]}
     │
     ├─► GoalOrchestrator.orchestrate()
