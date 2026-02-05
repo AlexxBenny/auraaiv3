@@ -219,6 +219,10 @@ class ExecutionCoordinator:
         needs_iteration = plan.get("needs_iteration", False)
         conditionals = plan.get("conditionals", [])
         
+        # INVARIANT ENFORCEMENT: Prevent LLM from fragmenting multi-goal queries
+        # This is the code-level guarantee - prompts are not trusted
+        blocks = self._normalize_blocks(blocks, conditionals, user_input)
+        
         # Stash QC classification for _execute_block enforcement
         # INVARIANT: When QC=multi, all blocks MUST use goal pipeline
         context["_qc_class"] = "multi"  # ExecutionCoordinator only runs for multi
@@ -261,6 +265,55 @@ class ExecutionCoordinator:
         logging.info(f"Coordinator analysis: {result.get('reasoning', 'N/A')}")
         
         return result
+    
+    def _normalize_blocks(
+        self,
+        blocks: List[Dict],
+        conditionals: List[Dict],
+        original_input: str
+    ) -> List[Dict]:
+        """Enforce block invariants - LLM cannot violate these.
+        
+        INVARIANT: multi-goal + no conditionals = exactly ONE goal block
+        
+        If LLM fragmented the query into multiple goal blocks without conditionals,
+        merge them back into a single block using the original user input.
+        
+        This prevents silent semantic corruption where dependent goals are
+        executed as independent queries, losing dependency context.
+        
+        Args:
+            blocks: Blocks emitted by LLM
+            conditionals: Conditionals emitted by LLM
+            original_input: Original user input (preserved for merge)
+            
+        Returns:
+            Normalized blocks (merged if fragmented)
+        """
+        goal_blocks = [b for b in blocks if b.get("pipeline") == "goal"]
+        non_goal_blocks = [b for b in blocks if b.get("pipeline") != "goal"]
+        
+        # INVARIANT ENFORCEMENT: multi-goal + no conditionals = ONE goal block
+        if len(goal_blocks) > 1 and len(conditionals) == 0:
+            logging.warning(
+                f"SEMANTIC ATOMICITY RESTORED: LLM fragmented multi-goal query into "
+                f"{len(goal_blocks)} goal blocks without conditionals. "
+                f"Merging into single block to preserve dependency context. "
+                f"(multi-goal query without conditionals must execute as one goal block)"
+            )
+            
+            # Merge all goal block inputs into single block
+            merged_block = {
+                "id": "b0",
+                "pipeline": "goal",
+                "input": original_input,  # Use ORIGINAL user input - critical!
+                "depends_on": [],
+                "parallel_safe": False
+            }
+            
+            return [merged_block] + non_goal_blocks
+        
+        return blocks
     
     def _execute_all_blocks(
         self, 
