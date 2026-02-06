@@ -8,3 +8,5 @@ legacy/
 .cursor/
 
 .env
+
+.pytest_cache

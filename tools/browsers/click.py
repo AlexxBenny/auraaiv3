@@ -1,0 +1,130 @@
+"""Tool: browsers.click
+
+Clicks an element on the page by CSS selector.
+
+Category: browser_control
+Risk Level: low
+Side Effects: page_state_change
+
+ARCHITECTURAL CONSTRAINTS (Phase 3):
+- Tool accepts selector from user/planner
+- Tool does NOT infer or guess selectors
+- Tool performs exactly ONE attempt (no retries)
+- timeout = max wait for Playwright, NOT a retry mechanism
+"""
+
+import logging
+from typing import Dict, Any
+from tools.base import Tool
+
+
+class Click(Tool):
+    """Click an element by CSS selector.
+    
+    CONSTRAINT: Selector must be provided by user or planner.
+    This tool does NOT search the DOM or guess elements.
+    """
+    
+    @property
+    def name(self) -> str:
+        return "browsers.click"
+    
+    @property
+    def description(self) -> str:
+        return "Clicks an element on the page using a CSS selector."
+    
+    @property
+    def capability_class(self) -> str:
+        return "actuate"
+    
+    @property
+    def risk_level(self) -> str:
+        return "low"
+    
+    @property
+    def side_effects(self) -> list[str]:
+        return ["page_state_change"]
+    
+    @property
+    def stabilization_time_ms(self) -> int:
+        return 500
+    
+    @property
+    def reversible(self) -> bool:
+        return False  # Click effects cannot be generically reversed
+    
+    @property
+    def requires_visual_confirmation(self) -> bool:
+        return True
+    
+    @property
+    def requires_focus(self) -> bool:
+        return False
+    
+    @property
+    def requires_unlocked_screen(self) -> bool:
+        return True
+    
+    @property
+    def schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector for the element to click (e.g., '#submit-btn', '.login-button')"
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Max wait time in ms for element to appear. NOT a retry mechanism - exactly one attempt.",
+                    "default": 5000
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional browser session identifier. Uses default if omitted."
+                }
+            },
+            "required": ["selector"]
+        }
+    
+    def execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Click element by selector.
+        
+        INVARIANT: Performs exactly one click attempt. No retries.
+        """
+        if not self.validate_args(args):
+            return {"status": "error", "error": "Invalid arguments", "content": ""}
+        
+        selector = args.get("selector")
+        timeout = args.get("timeout", 5000)
+        session_id = args.get("session_id")
+        
+        if not selector:
+            return {"status": "error", "error": "Selector is required", "content": ""}
+        
+        try:
+            from core.browser_session_manager import BrowserSessionManager
+            
+            manager = BrowserSessionManager.get()
+            session = manager.get_or_create(session_id=session_id)
+            page = session.page
+            
+            # Single attempt - no retries (architectural constraint)
+            page.click(selector, timeout=timeout)
+            
+            logging.info(f"Clicked element: {selector}")
+            return {
+                "status": "success",
+                "selector": selector,
+                "session_id": session.session_id,
+                "content": f"Clicked {selector}"
+            }
+            
+        except Exception as e:
+            logging.error(f"Click failed for '{selector}': {e}")
+            return {
+                "status": "error",
+                "error": f"Click failed: {e}",
+                "selector": selector,
+                "content": ""
+            }

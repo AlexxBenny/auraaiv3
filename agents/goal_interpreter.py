@@ -31,35 +31,25 @@ from models.model_manager import get_model_manager
 class Goal:
     """A single semantic goal.
     
-    CLOSED SET of goal types (do not expand without design review):
-    - browser_search: Search on a platform (youtube, google)
-    - browser_navigate: Open a URL directly
-    - app_launch: Launch an application
-    - app_action: Perform action within an app
-    - file_operation: File/folder CRUD
-    - system_query: Get system information
-    - system_control: Control system state (audio, display, power)
-    - media_control: Control media playback (play, pause, next, previous)
-    """
-    goal_type: Literal[
-        "browser_search",
-        "browser_navigate",
-        "app_launch",
-        "app_action",
-        "file_operation",
-        "system_query",
-        "system_control",
-        "media_control"
-    ]
+    PARAMETRIC SCHEMA (Phase 4):
+    - domain: What system/subsystem (browser, file, system, app, memory, media)
+    - verb: What action (from closed taxonomy in core/verbs.py)
+    - object: What the verb applies to (optional)
+    - params: Additional parameters
     
-    # Optional fields based on goal_type
-    platform: Optional[str] = None      # youtube, google, spotify
-    query: Optional[str] = None         # nvidia, weather
-    target: Optional[str] = None        # URL, file path, app name (semantic)
-    action: Optional[str] = None        # play, mkdir, create
-    content: Optional[str] = None       # File content, etc.
-    object_type: Optional[str] = None   # "folder" | "file" for file_operation
-    goal_id: Optional[str] = None       # Unique ID for action linking
+    This schema is future-proof:
+    - New tools map to existing verbs
+    - New params extend without changing verbs
+    - Planner uses (domain, verb) lookup, not branching
+    """
+    domain: Literal["browser", "file", "system", "app", "memory", "media"]
+    verb: str  # From closed taxonomy in core/verbs.py
+    
+    # Optional semantic object (what the verb applies to)
+    object: Optional[str] = None
+    
+    # Parameters for the goal (varies by domain/verb)
+    params: Dict[str, Any] = field(default_factory=dict)
     
     # SCOPE-BASED DEPENDENCY (single source of truth)
     # Allowed forms: "root", "inside:<target>", "drive:<letter>", "after:<target>"
@@ -68,6 +58,17 @@ class Goal:
     # Path resolution fields (set by GoalOrchestrator, NOT by interpreter)
     base_anchor: Optional[str] = None   # WORKSPACE, DESKTOP, DRIVE_D, etc.
     resolved_path: Optional[str] = None # Authoritative absolute path (planner MUST use this)
+    
+    # Unique ID for action linking
+    goal_id: Optional[str] = None
+    
+    def __post_init__(self):
+        # Validate domain and verb against taxonomy
+        from core.verbs import is_valid_verb, ALL_DOMAINS
+        if self.domain not in ALL_DOMAINS:
+            raise ValueError(f"Invalid domain: {self.domain}")
+        if not is_valid_verb(self.domain, self.verb):
+            raise ValueError(f"Invalid verb '{self.verb}' for domain '{self.domain}'")
 
 
 @dataclass(frozen=True)
@@ -153,35 +154,29 @@ class GoalInterpreter:
                 "items": {
                     "type": "object",
                     "properties": {
-                        "goal_type": {
+                        "domain": {
                             "type": "string",
-                            "enum": [
-                                "browser_search",
-                                "browser_navigate",
-                                "app_launch",
-                                "app_action",
-                                "file_operation",
-                                "system_query",
-                                "system_control",
-                                "media_control"
-                            ]
+                            "enum": ["browser", "file", "system", "app", "memory", "media"],
+                            "description": "What system/subsystem the goal applies to"
                         },
-                        "platform": {"type": "string"},
-                        "query": {"type": "string"},
-                        "target": {"type": "string"},
-                        "action": {"type": "string"},
-                        "content": {"type": "string"},
-                        "object_type": {
+                        "verb": {
                             "type": "string",
-                            "enum": ["folder", "file"],
-                            "description": "For file_operation: whether target is folder or file"
+                            "description": "What action from closed taxonomy (navigate, wait, click, type, read, create, delete, launch, etc.)"
+                        },
+                        "object": {
+                            "type": "string",
+                            "description": "What the verb applies to (optional)"
+                        },
+                        "params": {
+                            "type": "object",
+                            "description": "Additional parameters for the goal"
                         },
                         "scope": {
                             "type": "string",
                             "description": "Semantic scope: 'root', 'inside:<target>', 'drive:<letter>', 'after:<target>'"
                         }
                     },
-                    "required": ["goal_type"]
+                    "required": ["domain", "verb"]
                 }
             },
             "reasoning": {"type": "string"}
@@ -190,7 +185,18 @@ class GoalInterpreter:
     }
     
     FEW_SHOT_EXAMPLES = """
-## SEMANTIC GOAL EXTRACTION WITH SCOPE-BASED DEPENDENCIES
+## SEMANTIC GOAL EXTRACTION - PARAMETRIC SCHEMA (Phase 4)
+
+### CORE PRINCIPLE
+Goals describe WHAT, not HOW. Use domain + verb + params.
+
+### VERB TAXONOMY (CLOSED SET - DO NOT INVENT NEW VERBS)
+- browser: navigate, search, wait, click, type, read, scroll, select
+- file: create, delete, move, copy, read, write, rename, list
+- system: set, get, toggle, query
+- app: launch, focus, close
+- media: play, pause, stop, next, previous
+- memory: store, recall
 
 ### SCOPE SEMANTICS (CRITICAL)
 - "root" = no parent dependency (default)
@@ -207,8 +213,8 @@ User: "open chrome and open spotify"
 → {
     "meta_type": "independent_multi",
     "goals": [
-        {"goal_type": "app_launch", "target": "chrome", "scope": "root"},
-        {"goal_type": "app_launch", "target": "spotify", "scope": "root"}
+        {"domain": "app", "verb": "launch", "params": {"app_name": "chrome"}, "scope": "root"},
+        {"domain": "app", "verb": "launch", "params": {"app_name": "spotify"}, "scope": "root"}
     ],
     "reasoning": "Two independent app launches, no ordering needed"
 }
@@ -217,28 +223,18 @@ User: "increase volume and take a screenshot"
 → {
     "meta_type": "independent_multi", 
     "goals": [
-        {"goal_type": "system_control", "action": "volume_up", "scope": "root"},
-        {"goal_type": "system_control", "action": "screenshot", "scope": "root"}
+        {"domain": "system", "verb": "set", "params": {"target": "volume", "value": "up"}, "scope": "root"},
+        {"domain": "system", "verb": "get", "params": {"target": "screenshot"}, "scope": "root"}
     ],
-    "reasoning": "Two independent system control operations"
-}
-
-User: "unmute and set brightness to 50"
-→ {
-    "meta_type": "independent_multi", 
-    "goals": [
-        {"goal_type": "system_control", "action": "unmute", "scope": "root"},
-        {"goal_type": "system_control", "action": "set_brightness", "target": "50", "scope": "root"}
-    ],
-    "reasoning": "Two independent system control: audio unmute and display brightness"
+    "reasoning": "Two independent system operations"
 }
 
 User: "mute volume and lower brightness"
 → {
     "meta_type": "independent_multi", 
     "goals": [
-        {"goal_type": "system_control", "action": "mute", "scope": "root"},
-        {"goal_type": "system_control", "action": "lower_brightness", "scope": "root"}
+        {"domain": "system", "verb": "toggle", "params": {"target": "mute"}, "scope": "root"},
+        {"domain": "system", "verb": "set", "params": {"target": "brightness", "value": "down"}, "scope": "root"}
     ],
     "reasoning": "Two independent system control: audio mute and display"
 }
@@ -250,8 +246,8 @@ User: "create a folder called alex in D drive and create a ppt inside it"
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "alex", "scope": "drive:D"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "presentation.pptx", "scope": "inside:alex"}
+        {"domain": "file", "verb": "create", "params": {"object_type": "folder", "name": "alex"}, "scope": "drive:D"},
+        {"domain": "file", "verb": "create", "params": {"object_type": "file", "name": "presentation.pptx"}, "scope": "inside:alex"}
     ],
     "reasoning": "File goes inside alex folder. scope:inside:alex expresses containment."
 }
@@ -260,44 +256,22 @@ User: "create folder space and inside it folder galaxy and inside it file milkyw
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space", "scope": "root"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "galaxy", "scope": "inside:space"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "file", "target": "milkyway.txt", "scope": "inside:galaxy"}
+        {"domain": "file", "verb": "create", "params": {"object_type": "folder", "name": "space"}, "scope": "root"},
+        {"domain": "file", "verb": "create", "params": {"object_type": "folder", "name": "galaxy"}, "scope": "inside:space"},
+        {"domain": "file", "verb": "create", "params": {"object_type": "file", "name": "milkyway.txt"}, "scope": "inside:galaxy"}
     ],
-    "reasoning": "Nested containment: galaxy inside space, milkyway inside galaxy. Each scope references its parent."
+    "reasoning": "Nested containment: galaxy inside space, milkyway inside galaxy."
 }
 
-User: "create folder X, create folder Y, create folder Z inside X"
+User: "go to google.com and wait for the search box and read the title"
 → {
     "meta_type": "dependent_multi",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X", "scope": "root"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y", "scope": "root"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "scope": "inside:X"}
+        {"domain": "browser", "verb": "navigate", "params": {"url": "https://google.com"}, "scope": "root"},
+        {"domain": "browser", "verb": "wait", "params": {"selector": "input[name='q']", "state": "visible"}, "scope": "after:navigate"},
+        {"domain": "browser", "verb": "read", "object": "title", "scope": "after:wait"}
     ],
-    "reasoning": "X and Y are SIBLINGS (both root). Z explicitly goes inside X. Enumeration = same scope."
-}
-
-User: "create two folders named X and Y. Inside X create folder Z"
-→ {
-    "meta_type": "dependent_multi",
-    "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "X", "scope": "root"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Y", "scope": "root"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "Z", "scope": "inside:X"}
-    ],
-    "reasoning": "X and Y are SIBLINGS - enumeration means same scope. 'Inside X' only applies to Z."
-}
-
-User: "Create folder A. Create folder B in D drive. Inside A create C."
-→ {
-    "meta_type": "dependent_multi",
-    "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "A", "scope": "root"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "B", "scope": "drive:D"},
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "C", "scope": "inside:A"}
-    ],
-    "reasoning": "A at root, B in D drive (different location), C inside A. drive:D is location, not dependency."
+    "reasoning": "Sequential browser interaction: navigate, wait for element, read title."
 }
 
 ### Single goals
@@ -306,18 +280,45 @@ User: "open youtube and search nvidia"
 → {
     "meta_type": "single",
     "goals": [
-        {"goal_type": "browser_search", "platform": "youtube", "query": "nvidia", "scope": "root"}
+        {"domain": "browser", "verb": "search", "params": {"platform": "youtube", "query": "nvidia"}, "scope": "root"}
     ],
     "reasoning": "One semantic goal: search nvidia on youtube"
+}
+
+User: "go to google.com"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "browser", "verb": "navigate", "params": {"url": "https://google.com"}, "scope": "root"}
+    ],
+    "reasoning": "Single navigation goal"
 }
 
 User: "create a folder named space in D drive"
 → {
     "meta_type": "single",
     "goals": [
-        {"goal_type": "file_operation", "action": "create", "object_type": "folder", "target": "space", "scope": "drive:D"}
+        {"domain": "file", "verb": "create", "params": {"object_type": "folder", "name": "space"}, "scope": "drive:D"}
     ],
     "reasoning": "Single file operation with explicit location via scope."
+}
+
+User: "play music"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "media", "verb": "play", "scope": "root"}
+    ],
+    "reasoning": "Single media control operation"
+}
+
+User: "open chrome"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "app", "verb": "launch", "params": {"app_name": "chrome"}, "scope": "root"}
+    ],
+    "reasoning": "Single app launch"
 }
 """
     
@@ -496,17 +497,17 @@ INTERPRET THIS INPUT:
 User: "{user_input}"
 
 RULES:
-1. Extract SEMANTIC GOALS, not actions
+1. Extract SEMANTIC GOALS using domain + verb + params, not procedural actions
 2. independent_multi = goals that don't depend on each other (all scope: "root")
 3. dependent_multi = later goals have containment/ordering (use scope: "inside:<target>" or "after:<target>")
-4. Use correct goal_type from the closed set
+4. Use ONLY verbs from the closed taxonomy (see above)
 5. CRITICAL: Targets must be RAW names only, NOT full paths
 6. DO NOT output dependencies array - use scope field instead
 7. Express ordering and containment ONLY via scope
 
 Return JSON with:
 - meta_type: "single" | "independent_multi" | "dependent_multi"
-- goals: list of goal objects with goal_type, scope, and relevant fields
+- goals: list of goal objects with domain, verb, params, scope
 - reasoning: brief explanation
 """
         
@@ -529,21 +530,18 @@ Return JSON with:
             
             logging.info(f"DEBUG: Derived dependencies: {dependencies}")
             
-            # Build Goal objects with unique IDs and scope
+            # Build Goal objects with unique IDs and scope (PARAMETRIC SCHEMA)
             goals = tuple(
                 Goal(
-                    goal_type=g.get("goal_type", "app_launch"),
-                    platform=g.get("platform"),
-                    query=g.get("query"),
-                    target=g.get("target"),
-                    action=g.get("action"),
-                    content=g.get("content"),
-                    object_type=g.get("object_type"),
+                    domain=g.get("domain", "app"),
+                    verb=g.get("verb", "launch"),
+                    object=g.get("object"),
+                    params=g.get("params", {}),
                     goal_id=f"g{i}",  # Unique ID for action linking
                     scope=g.get("scope", "root"),  # SCOPE-BASED: single source of truth
                     # INVARIANT: base_anchor derived ONLY from scope, not global detection
                     base_anchor=self._derive_anchor_from_scope(g.get("scope", "root"))
-                        if g.get("goal_type") == "file_operation" else None
+                        if g.get("domain") == "file" else None
                 )
                 for i, g in enumerate(goals_data)
             )
@@ -551,14 +549,14 @@ Return JSON with:
             # DEBUG: Log constructed goals
             for i, g in enumerate(goals):
                 logging.info(
-                    f"DEBUG: Goal[{i}] type={g.goal_type}, target={g.target}, "
-                    f"scope={g.scope}, base_anchor={g.base_anchor}"
+                    f"DEBUG: Goal[{i}] domain={g.domain}, verb={g.verb}, "
+                    f"params={g.params}, scope={g.scope}, base_anchor={g.base_anchor}"
                 )
             
             # Handle edge case: no goals extracted
             if not goals:
                 logging.warning(f"GoalInterpreter: No goals extracted from '{user_input}'")
-                goals = (Goal(goal_type="app_launch", target=user_input),)
+                goals = (Goal(domain="app", verb="launch", params={"app_name": user_input}),)
                 meta_type = "single"
                 dependencies = ()
             
@@ -578,10 +576,10 @@ Return JSON with:
             
         except Exception as e:
             logging.error(f"GoalInterpreter failed: {e}, returning passthrough")
-            # Passthrough: treat as single goal
+            # Passthrough: treat as single goal (PARAMETRIC)
             return MetaGoal(
                 meta_type="single",
-                goals=(Goal(goal_type="app_launch", target=user_input),),
+                goals=(Goal(domain="app", verb="launch", params={"app_name": user_input}),),
                 dependencies=()
             )
     
