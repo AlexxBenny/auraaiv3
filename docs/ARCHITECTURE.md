@@ -1,149 +1,106 @@
-# AURA Agentic Architecture
+# AURA System Architecture (Phase 4)
 
-## Core Principles
-
-1. **LLMs do NOT execute code** - They only decide what to do
-2. **Python owns execution** - All execution is deterministic
-3. **Tools are deterministic** - No AI inside tools
-4. **Goal-oriented reasoning** - Semantic goals, not verb counting
-5. **Schema validation** - All LLM outputs validated
-6. **LLM-centric decisions** - Context surfaces to LLM, not coded as rules
+> **Goal-Oriented, Parametric, Deterministic**
 
 ---
 
-## Architecture Flow
+## 1. High-Level Design
+
+AURA is a **hybrid** desktop automation system that combines:
+1. **Classical Code**: Deterministic tools, DAG execution, safety enforcement.
+2. **Modern AI**: Semantic goal extraction, dependency reasoning.
+
+It avoids the "black box agent" problem by enforcing a strict separation between **Reasoning** (LLM) and **Execution** (Python).
+
+---
+
+## 2. Core Data Flow
 
 ```
 User Input
     ↓
-QueryClassifier (single vs multi)
+[QueryClassifier] → (Single vs Multi)
     ↓
-┌───────────────────┬────────────────────────┐
-│   SINGLE PATH     │      MULTI PATH        │
-├───────────────────┼────────────────────────┤
-│ IntentAgent       │ GoalInterpreter        │
-│ ToolResolver      │ GoalOrchestrator       │
-│ Executor          │ GoalPlanner (per goal) │
-│                   │ PlanGraph → Executor   │
-└───────────────────┴────────────────────────┘
-    ↓
-Result
+    ├── If SINGLE:
+    │   [IntentAgent] → Intent (e.g. "browser_control")
+    │         ↓
+    │   [ToolResolver] → Tool Selection (Legacy Path)
+    │         ↓
+    │   [Executor] → Tool Execution
+    │
+    └── If MULTI (Parametric Engine):
+        [GoalInterpreter] → MetaGoal (Parametric Goals + Scopes)
+              ↓
+        [GoalOrchestrator] → Dependency Graph Construction
+              ↓
+        [GoalPlanner] → PlannedActions (per goal)
+              ↓
+        [PlanGraph] → Topological Execution
+              ↓
+        [ToolResolver] → Concrete Tool Mapping
+              ↓
+        [Executor] → Tool Execution
 ```
 
 ---
 
-## Component Responsibilities
+## 3. The Parametric Goal Engine (Phase 4)
 
-### Context Layer (`core/`)
+The core innovation in Phase 4 is the move from "Typed Goals" to **Parametric Goals**.
 
-| Component | Responsibility |
-|-----------|----------------|
-| **ContextSnapshot** | Format ambient state for LLM consumption |
-| **AmbientMemory** | Background system state tracking |
+### 3.1 Parametric Goal Structure
+A goal is defined by `(domain, verb, params)`.
+- **Domain**: Broad category (`browser`, `file`).
+- **Verb**: Specific action (`navigate`, `create`).
+- **Params**: Arguments strictly defined by schema (`url`, `selector`).
 
-### Routing Layer (`agents/`)
-
-| Component | Responsibility |
-|-----------|----------------|
-| **QueryClassifier** | Syntactic routing (single vs multi) - NO context |
-| **IntentAgent** | Intent classification WITH context - decides act vs ask |
-
-### Reasoning Layer (`agents/`)
-
-| Component | Responsibility |
-|-----------|----------------|
-| **GoalInterpreter** | Extract semantic goals from user input |
-| **GoalPlanner** | Transform goal → minimal executable plan |
-| **GoalOrchestrator** | Combine plans into dependency graph |
-
-### Execution Layer (`core/`, `execution/`)
-
-| Component | Responsibility |
-|-----------|----------------|
-| **ToolResolver** | Map intent → tool with domain safety |
-| **Orchestrator** | Main entry point, path routing |
-| **ToolExecutor** | Execute tools deterministically |
-
-### Tools (`tools/`)
-
-- **Tool**: Base class for all tools
-- **Registry**: Central tool registry
-- **Categories**: files, system, office, memory
+### 3.2 Planner Authority
+The **GoalPlanner** is the single source of truth for action parameters. 
+- The Planner defines `selector="input[name='q']"`.
+- The Orchestrator injects this into the tool.
+- The LLM in ToolResolver is **bypassed** for these critical parameters to prevent hallucination.
 
 ---
 
-## Goal Architecture (Key Innovation)
+## 4. Safety Architecture
 
-```
-"create folder nvidia and file inside it"
-    ↓
-QueryClassifier: "multi" (syntactic: "inside it")
-    ↓
-GoalInterpreter: dependent_multi, 2 goals
-    ↓
-GoalPlanner: 2 plans (files.create_folder, files.create_file)
-    ↓
-GoalOrchestrator: PlanGraph with dependency edges
-    ↓
-Execute: folder first → file second
-```
+Safety is enforced at multiple layers:
 
-### Merging Principle
+### Layer 1: Schema Validation
+- All LLM outputs are validated against Pydantic models.
+- Invalid intent/goals cause immediate failure.
 
-```
-"open youtube and search nvidia"
-    ↓
-QueryClassifier: "single" (one semantic goal)
-    ↓
-Single path: IntentAgent → browser_control
-    ↓
-One action: youtube.com/results?search_query=nvidia
-```
+### Layer 2: Domain Locking
+- Tools are segmented by domain.
+- A `file_operation` intent can **only** access `files.*` tools.
+- Fallback logic is strictly constrained.
+
+### Layer 3: Deterministic Tools
+- Tools are "dumb". They perform one atomic action.
+- No retries, no loops within tools.
+- Complexity is lifted to the Orchestrator.
 
 ---
 
-## Tool Contract
+## 5. Technology Stack
 
-Every tool must:
-1. Inherit from `Tool` base class
-2. Define `name`, `description`, `schema`
-3. Implement `execute(args)` method
-4. Return structured result with `status` key
-5. Be deterministic (no randomness, no AI)
+- **Language**: Python 3.11+
+- **Browser Control**: Playwright (Headless/Headful)
+- **LLM Provider**: Abstracted (Gemini, Ollama, OpenRouter)
+- **Architecture**: Modular Monolith
 
 ---
 
-## Safety Guarantees
+## 6. Key Components
 
-| Guarantee | Mechanism |
-|-----------|-----------|
-| No hallucinated execution | Stage 2 domain lock |
-| No multi-tool ambiguity | Multi-JSON detection |
-| Dependent goals ordered | Dependency graph |
-| Single path isolation | No goal components touched |
+### QueryClassifier
+Fast router that decides if a query is simple (single goal) or complex (multi goal).
 
----
+### GoalInterpreter
+The "Brain" of the multi-goal path. Translates natural language into structured Parametric Goals and Scope-based dependencies.
 
-## Model Configuration
+### GoalPlanner
+The "Architect". Converts a high-level goal into a concrete, minimal action plan using table-driven rules.
 
-Edit `config/models.yaml`:
-
-```yaml
-intent:
-  provider: ollama
-  model: phi-3-mini
-
-planner:
-  provider: ollama
-  model: phi-3-mini
-```
-
----
-
-## Security
-
-- No `exec()` calls
-- Schema validation on all LLM outputs
-- Tool argument validation
-- Deterministic execution only
-- Path normalization for file operations
+### GoalOrchestrator
+The "Conductor". Manages the dependency graph and executes plans in correct order.

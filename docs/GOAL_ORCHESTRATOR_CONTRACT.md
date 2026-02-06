@@ -1,393 +1,92 @@
-# Goal Orchestrator Contract
+# Goal Orchestrator Contract (Phase 4)
 
-> **The layer above GoalPlanner. Handles multi-goal queries by orchestrating per-goal planning.**
-
----
-
-## 1. Architectural Position
-
-```
-User Query
-    ↓
-GoalInterpreter
-    ↓
-MetaGoal (goal tree with dependencies)
-    ↓
-GoalOrchestrator  ← THIS CONTRACT
-    ↓
-GoalPlanner.plan() (called per goal)
-    ↓
-OrchestratedPlan (plan graph)
-    ↓
-Executor
-```
-
-**Key Insight:**
-- `GoalPlanner` handles ONE goal → ONE plan
-- `GoalOrchestrator` handles MANY goals → combined plan graph
+> **Contract for Multi-Goal Coordination & Context Injection**
 
 ---
 
-## 2. Input Contracts
+## 1. Purpose
 
-### 2.1 MetaGoal
+`GoalOrchestrator` is the **Execution Engine** for the Parametric Goal architecture. It manages the lifecycle of `MetaGoal` → `PlanGraph` -> `Execution`.
 
-```python
-@dataclass(frozen=True)
-class MetaGoal:
-    """A goal tree that may contain multiple sub-goals."""
-    
-    meta_type: Literal["single", "independent_multi", "dependent_multi"]
-    goals: Tuple[Goal, ...]  # Immutable tuple
-    dependencies: FrozenDict[int, Tuple[int, ...]]  # goal_idx → depends_on[]
-    
-    def __post_init__(self):
-        # Invariants
-        if self.meta_type == "single":
-            assert len(self.goals) == 1
-            assert len(self.dependencies) == 0
-        
-        # No circular dependencies
-        assert not self._has_cycles()
+**Primary Responsibilities:**
+1. **Dependency Resolution**: Converts `MetaGoal` dependencies into a `PlanGraph` DAG.
+2. **Context Injection**: Injects resolved paths and planner-authoritative parameters (`selectors`) into tool parameters.
+3. **Execution Management**: Topological execution of the graph.
+
+---
+
+## 2. Architecture
+
 ```
-
-**MetaGoal Types:**
-
-| Type | Meaning | Example |
-|------|---------|---------|
-| `single` | One goal | "open youtube and search nvidia" |
-| `independent_multi` | Multiple unrelated goals | "open spotify and open chrome" |
-| `dependent_multi` | Goals with dependencies | "create folder X, then create file in X" |
-
-### 2.2 Goal (from GoalInterpreter contract)
-
-```python
-@dataclass(frozen=True)
-class Goal:
-    goal_type: Literal[...]
-    scope: str = "root"  # "root", "inside:X", "drive:D"
-    target: Optional[str]
-    # ...
+MetaGoal (Interpreter)
+    ↓
+GoalOrchestrator (Dependency Resolution)
+    ↓
+GoalPlanner (per goal) → PlannedAction
+    ↓
+PlanGraph (DAG of Actions)
+    ↓
+PlanExecutor (Topological Sort)
+    ↓
+ToolResolver (Action → Tool)
 ```
 
 ---
 
-## 3. Function Signature
+## 3. Param Injection & Context Logic
+
+The Orchestrator is responsible for ensuring **Planner Authority** over critical parameters.
+
+### 3.1 Selector Injection (Browser)
+To prevent LLM hallucinations (e.g. adding `.` to selectors), the Orchestrator injects `selector` and `state` directly from `PlannedAction.args` into the tool parameters.
 
 ```python
-def orchestrate(
-    self,
-    meta_goal: MetaGoal,
-    world_state: WorldState,
-    capabilities: List[ToolCapability]
-) -> OrchestrationResult:
+# Logic
+if action.intent == "browser_control" and "selector" in action.args:
+    params["selector"] = action.args["selector"]  # OVERRIDE LLM
+```
+
+### 3.2 Path Injection (File)
+To handle Windows paths and anchor resolution deterministically:
+
+```python
+# Logic
+if action.intent == "file_operation" and "path" in action.args:
+    params["path"] = action.args["path"]  # OVERRIDE LLM
 ```
 
 ---
 
-## 4. Output Contract
+## 4. Input/Output Contracts
 
-### 4.1 OrchestrationResult
+### 4.1 Input: MetaGoal
+- Contains parametric goals (`domain, verb, params`)
+- Contains dependency map `{child_idx: (parent_idx, ...)}`
 
-```python
-@dataclass
-class OrchestrationResult:
-    status: Literal["success", "partial", "blocked", "no_capability"]
-    plan_graph: Optional[PlanGraph]
-    failed_goals: List[FailedGoal]  # Which goals couldn't be planned
-    reason: Optional[str]
-```
-
-### 4.2 PlanGraph
-
+### 4.2 Output: PlanGraph
 ```python
 @dataclass
 class PlanGraph:
-    """Combined plan from multiple goals."""
-    
-    nodes: Dict[str, PlannedAction]  # action_id → action
-    edges: Dict[str, List[str]]       # action_id → depends_on[]
-    goal_map: Dict[int, List[str]]    # goal_idx → action_ids
-    execution_order: List[str]        # Topologically sorted
-    
-    def __post_init__(self):
-        # Invariants
-        assert self._is_acyclic()
-        assert self._all_deps_exist()
-        assert len(self.execution_order) == len(self.nodes)
-```
-
-### 4.3 FailedGoal
-
-```python
-@dataclass
-class FailedGoal:
-    goal_idx: int
-    goal: Goal
-    reason: str
-    blocker: Optional[str]  # What blocked it
+    nodes: Dict[str, PlannedAction]  # action_id -> Action
+    adjacency: Dict[str, Set[str]]   # parent_id -> children_ids
+    results: Dict[str, Any]          # action_id -> ToolResult
 ```
 
 ---
 
-## 5. Orchestration Logic
+## 5. Execution Logic
 
-### 5.1 Single Goal (Passthrough)
-
-```python
-if meta_goal.meta_type == "single":
-    plan_result = self.goal_planner.plan(
-        meta_goal.goals[0], world_state, capabilities
-    )
-    return self._wrap_single(plan_result)
-```
-
-### 5.2 Independent Multi
-
-```python
-if meta_goal.meta_type == "independent_multi":
-    plans = []
-    failed = []
-    
-    for idx, goal in enumerate(meta_goal.goals):
-        result = self.goal_planner.plan(goal, world_state, capabilities)
-        
-        if result.status == "success":
-            plans.append((idx, result.plan))
-        else:
-            failed.append(FailedGoal(idx, goal, result.reason))
-    
-    if not plans:
-        return OrchestrationResult(status="blocked", failed_goals=failed)
-    elif failed:
-        return OrchestrationResult(
-            status="partial",
-            plan_graph=self._merge_independent(plans),
-            failed_goals=failed
-        )
-    else:
-        return OrchestrationResult(
-            status="success",
-            plan_graph=self._merge_independent(plans)
-        )
-```
-
-### 5.3 Dependent Multi
-
-```python
-if meta_goal.meta_type == "dependent_multi":
-    # Topological sort of goals
-    goal_order = self._topo_sort(meta_goal.dependencies)
-    
-    plans = []
-    failed = []
-    simulated_state = world_state  # Track expected state changes
-    
-    for goal_idx in goal_order:
-        goal = meta_goal.goals[goal_idx]
-        
-        # Check if dependencies failed
-        deps = meta_goal.dependencies.get(goal_idx, ())
-        if any(d in [f.goal_idx for f in failed] for d in deps):
-            failed.append(FailedGoal(goal_idx, goal, "Dependency failed"))
-            continue
-        
-        result = self.goal_planner.plan(goal, simulated_state, capabilities)
-        
-        if result.status == "success":
-            plans.append((goal_idx, result.plan))
-            # Update simulated state with expected effects
-            simulated_state = self._apply_effects(simulated_state, result.plan)
-        else:
-            failed.append(FailedGoal(goal_idx, goal, result.reason))
-    
-    return self._build_result(plans, failed, meta_goal.dependencies)
-```
+1. **Topological Sort**: Flatten DAG into layers (e.g. `[g0, g1], [g2]`).
+2. **Parallel Execution**: Execute independent items in parallel (future capability).
+3. **Context Propagation**:
+   - `g0` (navigate) executes.
+   - `g1` (wait) inherits browser session from `g0`.
+   - `g2` (open folder) inherits resolved path from `g0`.
 
 ---
 
-## 6. Guarantees
+## 6. What Changed in Phase 4?
 
-| ID | Guarantee |
-|----|-----------|
-| O1 | **Single goals pass through unchanged** |
-| O2 | **Independent goals produce parallel-safe plan** |
-| O3 | **Dependencies become edges in plan graph** |
-| O4 | **Execution order is topologically valid** |
-| O5 | **Partial success returns what succeeded** |
-| O6 | **WorldState never mutated** |
-
----
-
-## 7. Edge Cases
-
-### 7.1 All Goals Fail
-
-```python
-OrchestrationResult(
-    status="blocked",
-    plan_graph=None,
-    failed_goals=[...all...],
-    reason="No goals could be planned"
-)
-```
-
-### 7.2 Dependency Chain Breaks
-
-```python
-# Goal 1 fails, Goal 2 depends on Goal 1
-→ Goal 2 automatically fails with reason="Dependency failed"
-→ Status becomes "partial" if Goal 0 succeeded
-```
-
-### 7.3 Circular Dependencies in Input
-
-```python
-# MetaGoal validation rejects this at construction time
-# GoalOrchestrator never sees circular dependencies
-```
-
----
-
-## 8. Examples
-
-### Example A: Single Merged Goal
-
-**Input:**
-```python
-MetaGoal(
-    meta_type="single",
-    goals=(Goal(goal_type="browser_search", platform="youtube", query="nvidia"),),
-    dependencies={}
-)
-```
-
-**Output:**
-```python
-OrchestrationResult(
-    status="success",
-    plan_graph=PlanGraph(
-        nodes={"a1": PlannedAction(tool="launch_shell", args={url: "youtube.com/..."})}),
-        edges={},
-        execution_order=["a1"]
-    )
-)
-```
-
-### Example B: Independent Multi
-
-**Input:**
-```python
-MetaGoal(
-    meta_type="independent_multi",
-    goals=(
-        Goal(goal_type="app_action", target="spotify", action="play"),
-        Goal(goal_type="browser_search", platform="google", query="nvidia")
-    ),
-    dependencies={}
-)
-```
-
-**Output:**
-```python
-OrchestrationResult(
-    status="success",
-    plan_graph=PlanGraph(
-        nodes={
-            "g0_a1": PlannedAction(...spotify...),
-            "g1_a1": PlannedAction(...chrome...)
-        },
-        edges={},  # No dependencies
-        execution_order=["g0_a1", "g1_a1"]  # Can be parallel
-    )
-)
-```
-
-### Example C: Dependent Multi
-
-**Input:**
-```python
-MetaGoal(
-    meta_type="dependent_multi",
-    goals=(
-        Goal(goal_type="file_operation", action="mkdir", target="alex", scope="drive:D"),
-        Goal(goal_type="file_operation", action="create", target="cars.pptx", scope="inside:alex")
-    ),
-    dependencies={1: (0,)}  # Goal 1 depends on Goal 0
-)
-```
-
-**Output:**
-```python
-OrchestrationResult(
-    status="success",
-    plan_graph=PlanGraph(
-        nodes={
-            "g0_a1": PlannedAction(tool="files.create_folder", args={path: "D:\\alex"}),
-            "g1_a1": PlannedAction(tool="files.create_file", args={path: "D:\\alex\\cars.pptx"})
-        },
-        edges={"g1_a1": ["g0_a1"]},  # Explicit dependency
-        execution_order=["g0_a1", "g1_a1"]  # Sequential
-    )
-)
-```
-
----
-
-## 9. What GoalOrchestrator Does NOT Do
-
-| Responsibility | Who Handles It |
-|----------------|----------------|
-| Parse user input | GoalInterpreter |
-| Plan single goal | GoalPlanner |
-| Merge actions within a goal | GoalPlanner |
-| Execute plan | Executor |
-| Handle ambiguity | GoalInterpreter |
-
----
-
-## 10. Phase 1 Scope
-
-For initial implementation:
-
-```python
-PHASE_1_META_TYPES = {"single", "independent_multi"}
-```
-
-- `dependent_multi` deferred to Phase 2
-- Simulated state effects deferred to Phase 2
-
----
-
-## Summary
-
-```
-┌─────────────────────────────────────────────────────┐
-│              GoalOrchestrator.orchestrate()         │
-├─────────────────────────────────────────────────────┤
-│  INPUTS (all immutable):                            │
-│    - MetaGoal (goal tree with dependencies)         │
-│    - WorldState (frozen, read-only)                 │
-│    - Capabilities (tool metadata)                   │
-├─────────────────────────────────────────────────────┤
-│  OUTPUTS:                                           │
-│    - OrchestrationResult with status                │
-│    - PlanGraph (nodes, edges, execution_order)      │
-│    - FailedGoals for partial/blocked                │
-├─────────────────────────────────────────────────────┤
-│  GUARANTEES:                                        │
-│    - Single goals pass through                      │
-│    - Independent goals parallelizable               │
-│    - Dependencies → explicit edges                  │
-│    - Execution order is valid                       │
-│    - Partial success supported                      │
-├─────────────────────────────────────────────────────┤
-│  CALLS:                                             │
-│    - GoalPlanner.plan() per goal                    │
-├─────────────────────────────────────────────────────┤
-│  DOES NOT:                                          │
-│    - Execute anything                               │
-│    - Parse user input                               │
-│    - Merge within a goal (GoalPlanner's job)        │
-└─────────────────────────────────────────────────────┘
-```
+- **Removed `goal_type` Logic**: Orchestrator no longer switches on `goal_type`. It inspects `domain`.
+- **Param Injection**: Formalized injection of `selector`, `url`, `path` to enforce Planner Authority.
+- **DAG Construction**: Uses Scope-Resolved dependencies exclusively.

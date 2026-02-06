@@ -1,274 +1,119 @@
-# Goal Interpreter Contract + System Flow
+# Goal Interpreter Contract (Phase 4)
 
-> **The final contract. Includes GoalInterpreter and the complete architectural flow.**
-
----
-
-## 1. Complete Architecture
-
-```
-User Query
-    ↓
-┌─────────────────────────────────┐
-│  QueryClassifier (was Gate)     │  Cheap, fast, rule-based
-│  Output: single | multi         │
-└─────────────────────────────────┘
-    ↓
-    ├── single ───────────────────────────────────────┐
-    │                                                 ↓
-    │   ┌─────────────────────────────────────────────────────┐
-    │   │  EXISTING SINGLE PATH (UNCHANGED)                   │
-    │   │  IntentAgent → ToolResolver → ActionPipeline        │
-    │   └─────────────────────────────────────────────────────┘
-    │
-    └── multi ────────────────────────────────────────┐
-                                                      ↓
-        ┌─────────────────────────────────────────────────────┐
-        │  NEW GOAL PATH                                      │
-        │  GoalInterpreter → MetaGoal                         │
-        │       ↓                                             │
-        │  GoalOrchestrator                                   │
-        │       ↓                                             │
-        │  GoalPlanner.plan() (per goal)                      │
-        │       ↓                                             │
-        │  PlanGraph → PlanExecutor (was MultiPipeline)       │
-        └─────────────────────────────────────────────────────┘
-```
-
-**Critical Rule:**
-- `single` → Existing flow, NO CHANGES
-- `multi` → New goal-oriented flow
+> **Contract for Semantic Goal Extraction & Scope Resolution**
 
 ---
 
-## 2. QueryClassifier (Demoted DecompositionGate)
+## 1. Purpose
 
-### 2.1 New Contract
-
-```python
-class QueryClassifier:
-    """Lightweight router. Single vs multi only.
-    
-    DOES:
-    - Cheap classification (rule-based or small model)
-    - Return single or multi
-    
-    DOES NOT:
-    - Extract actions
-    - Preserve ordering
-    - Infer dependencies
-    - Create subtasks
-    """
-    
-    def classify(self, user_input: str) -> Literal["single", "multi"]:
-        """Classify query structure.
-        
-        Returns:
-            "single" - One semantic goal (even if multiple verbs)
-            "multi" - Potentially multiple independent goals
-        """
-```
-
-### 2.2 Classification Rules
-
-| Query | Classification | Reason |
-|-------|----------------|--------|
-| "open chrome" | single | One action |
-| "what time is it" | single | One query |
-| "open youtube and search nvidia" | single | One goal (search on youtube) |
-| "open spotify and play song" | single | One goal (play music) |
-| "open chrome and open spotify" | multi | Two independent apps |
-| "create folder X and file Y inside" | multi | Two operations |
-| "shutdown computer" | single | One action |
-
-### 2.3 Key Insight
+`GoalInterpreter.interpret()` transforms raw user input into a **MetaGoal** containing structured **Parametric Goals** and a deterministically derived **Dependency DAG**.
 
 ```
-"open youtube and search nvidia"
+User Input → LLM → Parametric Goals + Scopes → Dependency Resolver → MetaGoal
 ```
-
-**Old Gate:** multi (two verbs)  
-**New Classifier:** single (one semantic goal)
-
-The classifier errs toward **single** unless clearly independent.
-
-### 2.4 Invariant
-
-> **QueryClassifier NEVER creates actions. Only planners create actions.**
 
 ---
 
-## 3. GoalInterpreter Contract
+## 2. Parametric Goal Structure
 
-### 3.1 Purpose
-
-Transform user input into a structured `MetaGoal`.
-
-**Only called when:** `QueryClassifier` returns `multi`
-
-### 3.2 Function Signature
-
-```python
-def interpret(
-    self,
-    user_input: str,
-    context: WorldState
-) -> MetaGoal:
-```
-
-### 3.3 Output Contract: MetaGoal
+Goals are no longer typed (e.g. `browser_search`). They are **domain-verb tuples**.
 
 ```python
 @dataclass(frozen=True)
+class Goal:
+    domain: str                  # "browser", "file", "system"
+    verb: str                    # "navigate", "wait", "click"
+    params: Dict[str, Any]       # {"url": "...", "selector": "..."}
+    object: Optional[str] = None # "title"
+    scope: str = "root"          # "after:navigate", "inside:docs"
+    
+    # Internal
+    goal_id: str                 # "g0", "g1" (Auto-assigned)
+```
+
+### 2.1 Domain/Verb Open Set
+The interpreter allows **any** domain/verb pair that the Planner supports.
+Common examples:
+- `browser.navigate`
+- `browser.wait`
+- `browser.click`
+- `file.create`
+- `system.launch`
+
+---
+
+## 3. Scope Resolution & Dependencies
+
+The interpreter is the **Single Authority** for dependencies. The LLM outputs `scope` strings, which are deterministically resolved to integer dependencies.
+
+### 3.1 Supported Scopes
+
+| Scope Format | Resolution Strategy | Example |
+|--------------|---------------------|---------|
+| `root` | Independent | `browser.navigate` |
+| `after:<verb>` | Depends on **first goal** with this verb | `scope="after:navigate"` |
+| `after:<id>` | Depends on goal with this ID | `scope="after:g0"` |
+| `inside:<target>` | Depends on file op creating this target | `scope="inside:my_folder"` |
+| `drive:<D>` | Sets base anchor (no logic dependency) | `scope="drive:C"` |
+
+### 3.2 Resolution Algorithm
+
+1. **Assign IDs**: `g0`, `g1`, `g2` assigned sequentially.
+2. **Build Maps**:
+   - `id_map`: `{"g0": 0, "g1": 1}`
+   - `verb_map`: `{"navigate": 0, "wait": 1}` (First win)
+   - `target_map`: `{"my_folder": 0}`
+3. **Resolve**:
+   - `after:navigate` → Look up "navigate" in `verb_map` → Index 0
+   - `after:g0` → Look up "g0" in `id_map` → Index 0
+
+### 3.3 Graph Validation
+- **No Forward References**: A goal can only depend on previous goals ($i > j$).
+- **No Self-References**: A goal cannot depend on itself.
+- **DAG Guarantee**: The resulting graph is guaranteed to be acyclic.
+
+---
+
+## 4. Output Contract (MetaGoal)
+
+```python
+@dataclass
 class MetaGoal:
     meta_type: Literal["single", "independent_multi", "dependent_multi"]
     goals: Tuple[Goal, ...]
     dependencies: FrozenDict[int, Tuple[int, ...]]
 ```
 
-### 3.4 Goal Types (Closed Set)
+### Example Output
+**Input:** `"go to google and wait for the search box"`
 
-```python
-class Goal:
-    goal_type: Literal[
-        "browser_search",      # Search on a platform
-        "browser_navigate",    # Open URL
-        "app_launch",          # Launch app
-        "app_action",          # Do something in app
-        "file_operation",      # File CRUD
-        "system_query"         # Get information
-    ]
-    scope: str = "root"        # "root", "inside:X", "drive:D", "after:X"
-    target: Optional[str]      # semantic path/URL/app name
-    # ... other fields
-```
-
-**No dynamic goal types.** This set is exhaustive for Phase 1.
-
-### 3.5 Examples
-
-**Input:** `"create folder alex in D drive and create ppt inside it"`
 ```python
 MetaGoal(
     meta_type="dependent_multi",
     goals=(
-        Goal(goal_type="file_operation", action="mkdir", target="alex", scope="drive:D"),
-        Goal(goal_type="file_operation", action="create", target="presentation.pptx", scope="inside:alex")
+        Goal(id="g0", domain="browser", verb="navigate", params={url: "google.com"}),
+        Goal(id="g1", domain="browser", verb="wait", scope="after:navigate")
     ),
-    dependencies={1: (0,)}  # Derived from scope "inside:alex"
+    dependencies={
+        1: (0,)  # g1 depends on g0
+    }
 )
 ```
 
-### 3.6 Scope & Dependency Derivation
+---
 
-**Single Authority:** `scope` field.
+## 5. Safety & Errors
 
-| Scope | Meaning | Dependency | Anchor |
-|-------|---------|------------|--------|
-| `root` | Independent | None | WORKSPACE |
-| `drive:D` | Explicit Drive | None | DRIVE_D |
-| `inside:X` | Contained in X | Yes (X) | Inherited |
-| `after:X` | Ordered after X | Yes (X) | None |
-
-Dependencies are **deterministically derived** from the `scope` field. The LLM does NOT output dependencies directly.
-
-### 3.6 Guarantees
-
-| ID | Guarantee |
-|----|-----------|
-| I1 | Output is always a valid MetaGoal |
-| I2 | Goal types are from closed set |
-| I3 | Dependencies form a DAG (no cycles) |
-| I4 | Context is read-only |
-
-### 3.7 Failure Modes
-
-| Mode | Handling |
-|------|----------|
-| Ambiguous | Ask for clarification (via orchestrator) |
-| Unsupported goal type | Return with `status="unsupported"` |
-| Parse failure | Fall through to legacy multi path |
+| Condition | Response |
+|-----------|----------|
+| **Unknown Verb** | Accepted by Interpreter (Planner will reject if unsupported) |
+| **Invalid Scope** | Logged as warning, dependency dropped (Soft Fail) |
+| **Forward Dependency** | Logged as error, dependency dropped (Cycle prevention) |
 
 ---
 
-## 4. What Changes vs What Stays
+## 6. What Changed in Phase 4?
 
-### ✅ Unchanged (Single Path)
-
-| Component | Status |
-|-----------|--------|
-| IntentAgent | ✅ Same |
-| ToolResolver | ✅ Same |
-| ActionPipeline | ✅ Same |
-| ToolExecutor | ✅ Same |
-
-**Single queries work exactly as before. Zero regression risk.**
-
-### ⚠️ Modified
-
-| Component | Change |
-|-----------|--------|
-| DecompositionGate | Demoted to QueryClassifier |
-| MultiPipeline | Becomes PlanExecutor |
-| Orchestrator | Routes to new goal path for multi |
-
-### ✳️ New
-
-| Component | Purpose |
-|-----------|---------|
-| GoalInterpreter | User input → MetaGoal |
-| GoalOrchestrator | MetaGoal → PlanGraph |
-| GoalPlanner | Goal → Plan (per goal) |
-
----
-
-## 5. Phase 1 Implementation Scope
-
-### In Scope
-
-- QueryClassifier (simplified Gate)
-- GoalInterpreter (browser + file goals only)
-- GoalOrchestrator (single + independent_multi)
-- GoalPlanner (browser_search, browser_navigate)
-
-### Out of Scope (Phase 2+)
-
-- `dependent_multi` handling
-- Simulated state effects
-- `app_action` goals
-- Clarification loops
-
----
-
-## 6. Summary: Three Layers
-
-```
-┌─────────────────────────────────────────────────────┐
-│  LAYER 1: ROUTING (cheap, fast)                     │
-│  QueryClassifier: single | multi                    │
-└─────────────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────────────┐
-│  LAYER 2: REASONING (LLM, semantic)                 │
-│  GoalInterpreter → GoalOrchestrator → GoalPlanner   │
-│  (Only for multi path)                              │
-└─────────────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────────────┐
-│  LAYER 3: EXECUTION (deterministic)                 │
-│  PlanExecutor / ActionPipeline → ToolExecutor       │
-│  (No reasoning, just execution)                     │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## 7. Contract Files Summary
-
-| File | Purpose |
-|------|---------|
-| `GOAL_PLANNER_CONTRACT.md` | Goal → Plan |
-| `GOAL_ORCHESTRATOR_CONTRACT.md` | MetaGoal → PlanGraph |
-| `GOAL_INTERPRETER_CONTRACT.md` | This file: full flow + GoalInterpreter |
-
-All contracts are now defined. Ready for implementation.
+- **Removed `goal_type`**: Replaced by `domain` + `verb`.
+- **Flexible Scopes**: Supports `after:verb` (natural LLM output) alongside `after:ID`.
+- **Internal IDs**: `g0`, `g1` automatically managed.

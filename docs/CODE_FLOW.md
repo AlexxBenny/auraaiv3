@@ -1,106 +1,82 @@
-# AURA Code Flow
+# Execution Code Flow (Phase 4)
 
-## Main Entry Points
-
-| Entry | File | Purpose |
-|-------|------|---------|
-| CLI | `main.py` | Terminal interface |
-| GUI | `main_gui.py` | Web interface |
+> **Trace of a request from User Input to Result**
 
 ---
 
-## Complete Flow (Current Architecture)
+## 1. Entry Point (`main.py`)
 
-```
-User Input: "create folder nvidia and file inside it"
-    ↓
-┌─────────────────────────────────────────────────────────┐
-│ STEP 1: QueryClassifier.classify()                       │
-│   - Syntactic heuristics: "inside it" = dependency       │
-│   - Result: "multi"                                       │
-└─────────────────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────────────────┐
-│ STEP 2: GoalInterpreter.interpret()                      │
-│   - Extract semantic goals                                │
-│   - Result: MetaGoal(dependent_multi, 2 goals)           │
-│     Goal 0: file_operation, folder, "nvidia"             │
-│     Goal 1: file_operation, file, "nvidia/test.txt"      │
-│     Dependencies: [(1, [0])]                              │
-└─────────────────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────────────────┐
-│ STEP 3: GoalOrchestrator.orchestrate()                   │
-│   - For each goal: GoalPlanner.plan()                    │
-│   - Combine: PlanGraph with dependency edges             │
-└─────────────────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────────────────┐
-│ STEP 4: Execute PlanGraph                                │
-│   - Respect dependency order                              │
-│   - Execute: folder first → file second                  │
-└─────────────────────────────────────────────────────────┘
-    ↓
-Result
+1. User enters text.
+2. `Orchestrator.process_command(user_input)` is called.
+
+---
+
+## 2. Classification Layer
+
+**`core/orchestrator.py`**
+
+```python
+classification = self.query_classifier.classify(user_input)
+# Returns: "single" or "multi"
 ```
 
 ---
 
-## Single Path Flow (Simple Commands)
+## 3. Path A: Single Goal (Legacy/Fast)
 
-```
-User Input: "mute the volume"
-    ↓
-QueryClassifier: "single"
-    ↓
-IntentAgent.classify() → system_control
-    ↓
-IntentRouter → _handle_action()
-    ↓
-ToolResolver.resolve() → system.audio.set_mute
-    ↓
-ToolExecutor.execute()
-    ↓
-Result
-```
+If `classification == "single"`, the legacy path is taken.
+
+**`core/orchestrator.py`**
+1. **Intent Classification**: `self.intent_router.route(user_input)`
+   - Takes: "open youtube"
+   - Returns: `Intent(name="browser_control", confidence=0.9)`
+
+2. **Pipeline Execution**: `self.execution_coordinator.execute(...)`
+   - **`ToolResolver.resolve()`**: Maps intent ("browser_control") + input ("open youtube") → `browsers.navigate`
+   - **`ToolExecutor.execute()`**: Runs the tool.
 
 ---
 
-## Multi Path Flow (Independent Goals)
+## 4. Path B: Multi Goal (Parametric Engine)
 
-```
-User Input: "open chrome and open spotify"
-    ↓
-QueryClassifier: "multi" (independent pattern)
-    ↓
-GoalInterpreter → independent_multi
-    ↓
-GoalOrchestrator → parallel execution
-    ↓
-Both apps launch
-```
+If `classification == "multi"`, the new Phase 4 path is taken.
+
+### 4.1 Goal Interpretation
+**`agents/goal_interpreter.py`**
+1. **LLM Call**: "go to google and read title" → JSON Goals
+2. **Scope Resolution**: 
+   - `after:navigate` → Resolved to dependency ID `0`
+3. **MetaGoal Creation**: Returns `MetaGoal` with parametric goals and dependency DAG.
+
+### 4.2 Orchestration
+**`agents/goal_orchestrator.py`**
+1. **Orchestrate**:
+   - Iterates through DAG in topological order.
+   - Maintains `WorldState` context.
+
+2. **Planning (Per Goal)**:
+   - **`GoalPlanner.plan(goal)`**: 
+     - Lookups `PLANNER_RULES[(domain, verb)]`.
+     - Validates params.
+     - Returns `PlannedAction`.
+
+### 4.3 Execution (Per Action)
+1. **Context Injection**:
+   - Orchestrator injects resolved paths (`path`) or selectors (`selector`) from `PlannedAction` into params.
+   
+2. **Resolution & Run**:
+   - **`ToolResolver.resolve()`**: Maps `PlannedAction` → Tool.
+   - **`ToolExecutor`**: Executes tool. 
+   - Result stored in `PlanGraph`.
 
 ---
 
-## Key Files
+## 5. Summary of Key Files
 
-| File | Responsibility |
-|------|----------------|
-| `core/orchestrator.py` | Main routing logic |
-| `agents/query_classifier.py` | Single vs multi detection |
-| `agents/goal_interpreter.py` | Goal extraction |
-| `agents/goal_planner.py` | Goal → Plan transformation |
-| `agents/goal_orchestrator.py` | Multi-goal coordination |
-| `core/tool_resolver.py` | Tool selection + safety |
-
----
-
-## Safety Mechanisms
-
-```
-Stage 1 ToolResolver: Preferred domains
-    ↓ (if no match)
-Stage 2 ToolResolver: Domain-locked fallback
-    ↓ (if still no match)
-Hard fail (no hallucination)
-```
+| File | Phase | Role |
+|------|-------|------|
+| `core/orchestrator.py` | 1-4 | Routes between Single/Multi paths |
+| `agents/query_classifier.py` | 2 | Decides Single vs Multi |
+| `agents/goal_interpreter.py` | 4 | Creates Parametric Goals |
+| `agents/goal_planner.py` | 4 | Validates & Creates Actions |
+| `agents/goal_orchestrator.py` | 4 | Manages Dependencies |
