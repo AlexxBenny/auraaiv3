@@ -382,11 +382,16 @@ User: "open chrome"
         THIS IS THE SINGLE AUTHORITY FOR DEPENDENCY CREATION.
         No LLM dependencies. No repair logic. Pure scope → DAG conversion.
         
+        PHASE 4 UPDATE: Supports multiple resolution strategies:
+        - after:g0, after:g1 → goal ID based (preferred)
+        - after:navigate, after:wait → verb based (LLM natural output)
+        - inside:folder_name → target based (legacy file operations)
+        
         Rules:
         - scope="root" → no dependency
-        - scope="inside:<target>" → depends on goal where target=<target>
+        - scope="inside:<ref>" → depends on goal matching <ref>
         - scope="drive:<letter>" → no dependency (just location)
-        - scope="after:<target>" → depends on goal where target=<target>
+        - scope="after:<ref>" → depends on goal matching <ref>
         
         Args:
             goals_data: List of goal dicts with scope annotations
@@ -394,12 +399,39 @@ User: "open chrome"
         Returns:
             Dependencies as tuple of (goal_idx, (depends_on...))
         """
-        # Build target → idx map
-        name_to_idx: Dict[str, int] = {}
+        # Build multiple resolution maps for flexibility
+        # 1. Goal ID map: g0 → 0, g1 → 1
+        id_to_idx: Dict[str, int] = {f"g{idx}": idx for idx in range(len(goals_data))}
+        
+        # 2. Verb map: navigate → 0, wait → 1 (first occurrence wins)
+        verb_to_idx: Dict[str, int] = {}
         for idx, g in enumerate(goals_data):
-            target = g.get("target")
+            verb = g.get("verb")
+            if verb and verb not in verb_to_idx:
+                verb_to_idx[verb] = idx
+        
+        # 3. Target/object map: folder_name → idx (for file operations)
+        target_to_idx: Dict[str, int] = {}
+        for idx, g in enumerate(goals_data):
+            # Try object field (parametric) then target (legacy)
+            target = g.get("object") or g.get("target") or g.get("params", {}).get("name")
             if target:
-                name_to_idx[target] = idx
+                target_to_idx[target] = idx
+        
+        logging.debug(f"ScopeResolver: id_map={id_to_idx}, verb_map={verb_to_idx}, target_map={target_to_idx}")
+        
+        def resolve_ref(ref: str) -> Optional[int]:
+            """Resolve a reference to a goal index using multiple strategies."""
+            # Try goal ID first (g0, g1, etc.)
+            if ref in id_to_idx:
+                return id_to_idx[ref]
+            # Try verb (navigate, wait, etc.)
+            if ref in verb_to_idx:
+                return verb_to_idx[ref]
+            # Try target/object name
+            if ref in target_to_idx:
+                return target_to_idx[ref]
+            return None
         
         dependencies: List[Tuple[int, Tuple[int, ...]]] = []
         
@@ -410,45 +442,40 @@ User: "open chrome"
                 # No dependency
                 continue
             
-            if scope.startswith("inside:"):
-                parent_name = scope[7:]  # Remove "inside:"
-                if parent_name in name_to_idx:
-                    parent_idx = name_to_idx[parent_name]
-                    if parent_idx < idx:  # Forward reference only
-                        dependencies.append((idx, (parent_idx,)))
-                        logging.debug(
-                            f"ScopeDerived: g{idx} depends on g{parent_idx} "
-                            f"(inside:{parent_name})"
-                        )
-                    else:
-                        logging.warning(
-                            f"ScopeError: g{idx} references future goal '{parent_name}' - skipped"
-                        )
-                else:
-                    logging.warning(
-                        f"ScopeError: g{idx} references unknown target '{parent_name}'"
-                    )
+            ref_type = None
+            ref_name = None
             
+            if scope.startswith("inside:"):
+                ref_type = "inside"
+                ref_name = scope[7:]  # Remove "inside:"
             elif scope.startswith("after:"):
-                prereq_name = scope[6:]  # Remove "after:"
-                if prereq_name in name_to_idx:
-                    prereq_idx = name_to_idx[prereq_name]
-                    if prereq_idx < idx:  # Forward reference only
-                        dependencies.append((idx, (prereq_idx,)))
-                        logging.debug(
-                            f"ScopeDerived: g{idx} depends on g{prereq_idx} "
-                            f"(after:{prereq_name})"
-                        )
-                    else:
-                        logging.warning(
-                            f"ScopeError: g{idx} references future goal '{prereq_name}' - skipped"
-                        )
+                ref_type = "after"
+                ref_name = scope[6:]  # Remove "after:"
+            else:
+                logging.warning(f"ScopeError: Unknown scope format '{scope}' for g{idx}")
+                continue
+            
+            resolved_idx = resolve_ref(ref_name)
+            
+            if resolved_idx is not None:
+                if resolved_idx < idx:  # Forward reference only
+                    dependencies.append((idx, (resolved_idx,)))
+                    logging.info(
+                        f"ScopeDerived: g{idx} depends on g{resolved_idx} "
+                        f"({ref_type}:{ref_name})"
+                    )
                 else:
                     logging.warning(
-                        f"ScopeError: g{idx} references unknown target '{prereq_name}'"
+                        f"ScopeError: g{idx} references future/self goal '{ref_name}' - skipped"
                     )
+            else:
+                logging.warning(
+                    f"ScopeError: g{idx} references unknown '{ref_name}' "
+                    f"(tried: id, verb, target)"
+                )
         
         return dependencies
+
     
     def interpret(
         self, 

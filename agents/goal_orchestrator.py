@@ -134,6 +134,16 @@ class GoalOrchestrator:
                 params["app_name"] = action.args["browser"]
                 logging.info(f"DEBUG: Injected browser name: {action.args['browser']}")
         
+        # PHASE 4: Inject browser selector params from planner (bypass LLM hallucination)
+        # LLM was adding "." prefix to selectors - this ensures planner args are authoritative
+        if action.intent == "browser_control":
+            if "selector" in action.args:
+                params["selector"] = action.args["selector"]
+                logging.info(f"DEBUG: Injected selector from planner: {action.args['selector']}")
+            if "state" in action.args:
+                params["state"] = action.args["state"]
+                logging.info(f"DEBUG: Injected state from planner: {action.args['state']}")
+        
         if not tool_name:
             logging.warning(
                 f"GoalOrchestrator: resolution failed for action '{action.description}' "
@@ -182,8 +192,10 @@ class GoalOrchestrator:
         resolved_goals = []
         
         for idx, goal in enumerate(meta_goal.goals):
-            # Only resolve file_operation goals
-            if goal.goal_type != "file_operation" or not goal.target:
+            # Only resolve file domain goals with paths
+            # PHASE 4: Use parametric (domain, verb, params) instead of goal_type
+            path_param = goal.params.get("path") or goal.params.get("name") if goal.params else None
+            if goal.domain != "file" or not path_param:
                 resolved_goals.append(goal)
                 continue
             
@@ -192,7 +204,7 @@ class GoalOrchestrator:
             deps = meta_goal.get_dependencies(idx)
             
             # DEBUG: Log dependency resolution
-            logging.info(f"DEBUG: Goal {idx} '{goal.target}' - deps={deps}, scope={goal.scope}")
+            logging.info(f"DEBUG: Goal {idx} '{path_param}' - deps={deps}, scope={goal.scope}")
             
             if deps:
                 # Use first dependency's resolved path
@@ -205,8 +217,9 @@ class GoalOrchestrator:
             
             try:
                 # Resolve using PathResolver
+                # PHASE 4: Use path_param from params
                 resolved = PathResolver.resolve(
-                    raw_path=goal.target,
+                    raw_path=path_param,
                     base_anchor=base_anchor,
                     parent_resolved=parent_path,
                     context=context
@@ -215,25 +228,25 @@ class GoalOrchestrator:
                 # Store for children
                 resolved_paths[idx] = resolved.absolute_path
                 
-                # Create new goal with resolved path
-                # (Goal is frozen, so we create a new one)
+                # Create new goal with resolved path in params
+                # PHASE 4: Goals are parametric (domain, verb, params)
+                updated_params = dict(goal.params) if goal.params else {}
+                updated_params["resolved_path"] = str(resolved.absolute_path)
+                
                 new_goal = Goal(
-                    goal_type=goal.goal_type,
-                    platform=goal.platform,
-                    query=goal.query,
-                    target=goal.target,  # Keep original for logging
-                    action=goal.action,
-                    content=goal.content,
-                    object_type=goal.object_type,
+                    domain=goal.domain,
+                    verb=goal.verb,
+                    object=goal.object,
+                    params=updated_params,
                     goal_id=goal.goal_id,
-                    scope=goal.scope,  # SCOPE-BASED: preserve for downstream
+                    scope=goal.scope,
                     base_anchor=resolved.base_anchor,
                     resolved_path=str(resolved.absolute_path)  # THE AUTHORITY
                 )
                 resolved_goals.append(new_goal)
                 
                 logging.debug(
-                    f"PathResolver: goal {idx} '{goal.target}' → "
+                    f"PathResolver: goal {idx} '{path_param}' → "
                     f"'{resolved.absolute_path}' (base={resolved.base_anchor})"
                 )
                 

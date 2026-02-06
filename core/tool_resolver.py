@@ -493,6 +493,14 @@ Return JSON with tool, params, confidence, and reason.
             if "reason" not in result:
                 result["reason"] = "No explanation provided"
             
+            # === AGGRESSIVE DEBUG: Trace resolver output ===
+            logging.info(f"=== ToolResolver OUTPUT ===")
+            logging.info(f"  tool: {result.get('tool')}")
+            logging.info(f"  params: {result.get('params')}")
+            if 'selector' in result.get('params', {}):
+                logging.info(f"  params.selector: '{result['params']['selector']}'")
+                logging.info(f"  params.selector repr: {repr(result['params']['selector'])}")
+            
             return result
             
         except Exception as e:

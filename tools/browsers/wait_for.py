@@ -99,6 +99,11 @@ class WaitFor(Tool):
         
         INVARIANT: Single wait. No loops. No retries. Fail loud.
         """
+        # === AGGRESSIVE DEBUG: Trace incoming args ===
+        logging.info(f"=== browsers.wait_for ENTRY ===")
+        logging.info(f"  RAW args received: {args}")
+        logging.info(f"  args type: {type(args)}")
+        
         if not self.validate_args(args):
             return {"status": "error", "error": "Invalid arguments", "content": ""}
         
@@ -106,6 +111,12 @@ class WaitFor(Tool):
         state = args.get("state", "visible")
         timeout = args.get("timeout", 5000)
         session_id = args.get("session_id")
+        
+        # === AGGRESSIVE DEBUG: Trace selector extraction ===
+        logging.info(f"  EXTRACTED selector: '{selector}'")
+        logging.info(f"  selector type: {type(selector)}")
+        logging.info(f"  selector repr: {repr(selector)}")
+        logging.info(f"  selector[0] if exists: '{selector[0] if selector else 'N/A'}'")
         
         if not selector:
             return {"status": "error", "error": "Selector is required", "content": ""}
@@ -119,6 +130,10 @@ class WaitFor(Tool):
             manager = BrowserSessionManager.get()
             session = manager.get_or_create(session_id=session_id)
             page = session.page
+            
+            # === AGGRESSIVE DEBUG: Final selector before Playwright call ===
+            logging.info(f"  FINAL selector to Playwright: '{selector}'")
+            logging.info(f"  FINAL selector repr: {repr(selector)}")
             
             # Single wait - no loops, no retries (architectural constraint)
             page.wait_for_selector(selector, state=state, timeout=timeout)
