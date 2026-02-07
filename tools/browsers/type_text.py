@@ -135,11 +135,29 @@ class TypeText(Tool):
                 "content": f"Typed {len(text)} chars into {selector}"
             }
             
+        except TimeoutError as e:
+            logging.error(f"Type timeout for '{selector}': {e}")
+            return {
+                "status": "error",
+                "error": f"Type timeout: {e}",
+                "selector": selector,
+                "failure_class": "environmental",  # Element not found yet (transient)
+                "content": ""
+            }
         except Exception as e:
             logging.error(f"Type failed for '{selector}': {e}")
+            error_str = str(e).lower()
+            # Determine failure class based on error type
+            if "timeout" in error_str or "waiting" in error_str:
+                failure_class = "environmental"  # Transient - element may appear later
+            elif "not found" in error_str or "no element" in error_str:
+                failure_class = "logical"  # Element doesn't exist (not retryable)
+            else:
+                failure_class = "environmental"  # Default to environmental for browser ops
             return {
                 "status": "error",
                 "error": f"Type failed: {e}",
                 "selector": selector,
+                "failure_class": failure_class,
                 "content": ""
             }

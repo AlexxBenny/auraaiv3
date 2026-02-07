@@ -25,7 +25,7 @@ from agents.goal_orchestrator import GoalOrchestrator
 
 from core.intent_router import IntentRouter
 from core.tool_resolver import ToolResolver
-from core.pipelines import handle_information, handle_action, handle_multi, handle_fallback
+from core.pipelines import handle_information, handle_action, handle_fallback
 from core.context import SessionContext
 from execution.executor import ToolExecutor
 from memory.ambient import get_ambient_memory
@@ -358,9 +358,19 @@ class Orchestrator:
             results = []
             success_count = 0
             
+            # Phase 5: Track goal execution status
+            goal_action_status = {}  # goal_idx → list of (action_id, success)
+            
             for action_id in plan_graph.execution_order:
                 action = plan_graph.nodes[action_id]
                 logging.info(f"DEBUG ORCH: action_id={action_id}, action.action_class={action.action_class}")
+                
+                # Find which goal this action belongs to
+                goal_idx = None
+                for g_idx, action_ids in plan_graph.goal_map.items():
+                    if action_id in action_ids:
+                        goal_idx = g_idx
+                        break
                 
                 try:
                     # Execute via resolver - Phase 3 abstract action → concrete tool
@@ -376,21 +386,204 @@ class Orchestrator:
                             "description": action.description,
                             "result": tool_result
                         })
+                        if goal_idx is not None:
+                            goal_action_status.setdefault(goal_idx, []).append((action_id, True))
                     else:
+                        # Phase 5: Track failure with failure_class
+                        failure_class = tool_result.get("failure_class", "unknown")
                         results.append({
                             "action_id": action_id,
                             "status": "failed",
                             "description": action.description,
-                            "error": tool_result.get("error", tool_result.get("reason", "Unknown error"))
+                            "error": tool_result.get("error", tool_result.get("reason", "Unknown error")),
+                            "failure_class": failure_class
                         })
+                        if goal_idx is not None:
+                            goal_action_status.setdefault(goal_idx, []).append((action_id, False, failure_class))
                         
                 except Exception as e:
                     logging.error(f"Action {action_id} failed: {e}")
                     results.append({
                         "action_id": action_id,
                         "status": "error",
-                        "error": str(e)
+                        "error": str(e),
+                        "failure_class": "unknown"
                     })
+                    if goal_idx is not None:
+                        goal_action_status.setdefault(goal_idx, []).append((action_id, False, "unknown"))
+            
+            # Phase 5: Build ExecutionSummary
+            from agents.goal_orchestrator import ExecutionSummary, FailedGoal
+            
+            completed_goals = []
+            failed_goals = []
+            
+            # Check each goal's execution status
+            for goal_idx, goal in enumerate(meta_goal.goals):
+                if goal_idx in goal_action_status:
+                    actions = goal_action_status[goal_idx]
+                    # Goal succeeds if all its actions succeed
+                    if all(success for _, success, *_ in actions):
+                        completed_goals.append(goal_idx)
+                    else:
+                        # Find first failure for this goal
+                        for action_id, success, *failure_info in actions:
+                            if not success:
+                                failure_class = failure_info[0] if failure_info else "unknown"
+                                # Find error message from results
+                                error_msg = "Action failed"
+                                for r in results:
+                                    if r.get("action_id") == action_id:
+                                        error_msg = r.get("error", r.get("reason", "Action failed"))
+                                        break
+                                
+                                failed_goals.append(FailedGoal(
+                                    goal_idx=goal_idx,
+                                    goal=goal,
+                                    reason=error_msg,
+                                    failure_class=failure_class
+                                ))
+                                break
+                elif goal_idx in [fg.goal_idx for fg in orch_result.failed_goals]:
+                    # Planning failure - already in orch_result.failed_goals
+                    pass
+                else:
+                    # Goal had no actions (shouldn't happen, but handle gracefully)
+                    logging.warning(f"Goal {goal_idx} had no actions")
+            
+            # Determine overall status
+            if success_count == plan_graph.total_actions and not orch_result.failed_goals:
+                exec_status = "success"
+            elif success_count > 0 or completed_goals:
+                exec_status = "partial"
+            else:
+                exec_status = "failed"
+            
+            execution_summary = ExecutionSummary(
+                status=exec_status,
+                failed_goals=failed_goals + list(orch_result.failed_goals),  # Combine execution + planning failures
+                completed_goals=completed_goals
+            )
+            
+            # Phase 5: Attempt repair if partial failure
+            if exec_status == "partial" and failed_goals:
+                logging.info(f"Partial execution detected, attempting repair for {len(failed_goals)} failed goal(s)")
+                # Initialize repair budget if not present
+                if "_repair_attempts" not in context:
+                    context["_repair_attempts"] = 0
+                
+                # Call orchestrate with execution_summary to trigger repair
+                repaired_result = self.goal_orchestrator.orchestrate(
+                    meta_goal,
+                    context,
+                    capabilities=None,
+                    execution_summary=execution_summary
+                )
+                
+                # If repair succeeded, execute repaired plan
+                if repaired_result.status == "success" and repaired_result.plan_graph:
+                    logging.info("Repair succeeded, executing repaired plan")
+                    progress.emit("Executing repaired plan...")
+                    
+                    # Execute repaired plan and normalize reporting (same format as non-repaired)
+                    repaired_plan_graph = repaired_result.plan_graph
+                    repaired_results = []
+                    repaired_success_count = 0
+                    
+                    # Phase 5: Track goal execution status for repaired plan (normalized reporting)
+                    repaired_goal_action_status = {}  # goal_idx → list of (action_id, success)
+                    
+                    for action_id in repaired_plan_graph.execution_order:
+                        action = repaired_plan_graph.nodes[action_id]
+                        
+                        # Find which goal this action belongs to
+                        repaired_goal_idx = None
+                        for g_idx, action_ids in repaired_plan_graph.goal_map.items():
+                            if action_id in action_ids:
+                                repaired_goal_idx = g_idx
+                                break
+                        
+                        try:
+                            tool_result = self.goal_orchestrator._resolve_and_execute(action, context)
+                            if tool_result.get("status") == "success":
+                                repaired_success_count += 1
+                                if repaired_goal_idx is not None:
+                                    repaired_goal_action_status.setdefault(repaired_goal_idx, []).append((action_id, True))
+                            else:
+                                failure_class = tool_result.get("failure_class", "unknown")
+                                if repaired_goal_idx is not None:
+                                    repaired_goal_action_status.setdefault(repaired_goal_idx, []).append((action_id, False, failure_class))
+                            
+                            repaired_results.append({
+                                "action_id": action_id,
+                                "status": tool_result.get("status", "unknown"),
+                                "description": action.description,
+                                "result": tool_result if tool_result.get("status") == "success" else None,
+                                "error": tool_result.get("error") if tool_result.get("status") != "success" else None
+                            })
+                        except Exception as e:
+                            logging.error(f"Repaired action {action_id} failed: {e}")
+                            if repaired_goal_idx is not None:
+                                repaired_goal_action_status.setdefault(repaired_goal_idx, []).append((action_id, False, "unknown"))
+                            repaired_results.append({
+                                "action_id": action_id,
+                                "status": "error",
+                                "error": str(e)
+                            })
+                    
+                    # Phase 5: Build ExecutionSummary for repaired execution (normalized reporting)
+                    # Note: We don't trigger second-level repair, but we normalize the reporting format
+                    repaired_completed_goals = []
+                    repaired_failed_goals = []
+                    
+                    for goal_idx, goal in enumerate(meta_goal.goals):
+                        if goal_idx in repaired_goal_action_status:
+                            actions = repaired_goal_action_status[goal_idx]
+                            if all(success for _, success, *_ in actions):
+                                repaired_completed_goals.append(goal_idx)
+                            else:
+                                # Find first failure for this goal
+                                for action_id, success, *failure_info in actions:
+                                    if not success:
+                                        failure_class = failure_info[0] if failure_info else "unknown"
+                                        error_msg = "Action failed"
+                                        for r in repaired_results:
+                                            if r.get("action_id") == action_id:
+                                                error_msg = r.get("error", r.get("reason", "Action failed"))
+                                                break
+                                        
+                                        repaired_failed_goals.append(FailedGoal(
+                                            goal_idx=goal_idx,
+                                            goal=goal,
+                                            reason=error_msg,
+                                            failure_class=failure_class
+                                        ))
+                                        break
+                    
+                    # Determine overall status
+                    if repaired_success_count == repaired_plan_graph.total_actions:
+                        repaired_status = "success"
+                        response = f"Completed all {repaired_success_count} action(s) after repair"
+                    elif repaired_success_count > 0:
+                        repaired_status = "partial"
+                        response = f"Completed {repaired_success_count} of {repaired_plan_graph.total_actions} action(s) after repair"
+                    else:
+                        repaired_status = "partial"
+                        response = "Repair attempted but execution still failed"
+                    
+                    # Return normalized response (same format as non-repaired execution)
+                    return {
+                        "status": repaired_status,
+                        "type": "goal_execution",
+                        "response": response,
+                        "results": repaired_results,
+                        "mode": "goal",
+                        "meta_type": meta_goal.meta_type,
+                        "total_goals": len(meta_goal.goals),
+                        "total_actions": repaired_plan_graph.total_actions,
+                        "repair_attempted": True,
+                        "repair_reason": repaired_result.repair_reason
+                    }
             
             # Build response
             if success_count == plan_graph.total_actions:
@@ -416,7 +609,9 @@ class Orchestrator:
                 "mode": "goal",
                 "meta_type": meta_goal.meta_type,
                 "total_goals": len(meta_goal.goals),
-                "total_actions": plan_graph.total_actions
+                "total_actions": plan_graph.total_actions,
+                "repair_attempted": orch_result.repair_attempted if hasattr(orch_result, 'repair_attempted') else False,
+                "repair_reason": orch_result.repair_reason if hasattr(orch_result, 'repair_reason') else None
             }
             
         except Exception as e:

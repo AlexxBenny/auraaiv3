@@ -24,3 +24,11 @@ safety:
   validate_tool_names: true
   check_name_conflicts: true
 
+# Semantic Defaults
+# These values are used when LLM explicitly emits "default" as a token.
+# Priority: Explicit user intent > Semantic token ("default") > Planner default
+semantic_defaults:
+  browser:
+    search:
+      platform: google  # Resolves "platform": "default" → "google"
+

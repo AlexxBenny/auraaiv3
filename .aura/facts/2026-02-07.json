@@ -1,0 +1,41 @@
+{
+  "date": "2026-02-07",
+  "schema_version": 1,
+  "count": 2,
+  "facts": [
+    {
+      "fact_id": "7a141f40-ccb2-4475-81ce-fe903868e6c2",
+      "timestamp": "2026-02-07T10:37:54.686820",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "33469240-90df-4268-9927-60cb46b6d524",
+      "timestamp": "2026-02-07T13:41:44.188169",
+      "tool": "browsers.navigate",
+      "query": "open youtube in chrome",
+      "facts": {
+        "status": "success",
+        "url": "https://www.youtube.com/",
+        "session_id": "784bb522",
+        "content": "https://www.youtube.com/"
+      },
+      "fact_keys": [
+        "content",
+        "session_id",
+        "status",
+        "url"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

@@ -40,8 +40,15 @@ class BrowserSession:
         if self.page is None:
             return False
         try:
-            # Playwright pages have is_closed()
-            return not self.page.is_closed()
+            # Check if page is closed
+            if self.page.is_closed():
+                return False
+            # For persistent contexts, also verify context is still alive
+            # by attempting to access it (will throw if closed)
+            if self.context:
+                # Try to access context - will throw if closed
+                _ = self.context.pages
+            return True
         except Exception:
             return False
 
@@ -136,10 +143,39 @@ class BrowserSessionManager:
         browser_type = browser_type or config.default_browser
         engine = self._get_engine()
         
+        # Resolve user_data_dir with profile support from apps.yaml
+        user_data_dir = config.user_data_dir
+        
+        # If using default/isolated path and browser supports profiles,
+        # try to use profile from apps.yaml
+        if browser_type in ("chrome", "edge"):
+            # Check if user_data_dir is default/isolated or the default path
+            is_default_path = (
+                user_data_dir in ("auto", "isolated") or
+                (isinstance(user_data_dir, str) and "browser_profiles" in user_data_dir)
+            )
+            
+            if is_default_path:
+                from core.apps_config import AppsConfig
+                
+                apps_config = AppsConfig.get()
+                profile_name = apps_config.get_browser_profile(browser_type)
+                
+                if profile_name:
+                    # Resolve profile name to actual User Data directory
+                    profile_path = BrowserConfig.resolve_browser_profile_path(
+                        browser_type, profile_name
+                    )
+                    if profile_path:
+                        user_data_dir = profile_path
+                        logging.info(
+                            f"Using {browser_type} profile '{profile_name}' from apps.yaml: {profile_path}"
+                        )
+        
         browser, context, page = engine.launch(
             browser_type=browser_type,
             headless=config.headless,
-            user_data_dir=config.user_data_dir
+            user_data_dir=user_data_dir
         )
         
         session = BrowserSession(

@@ -113,6 +113,7 @@ class GetText(Tool):
                     "status": "error",
                     "error": f"Element not found: {selector}",
                     "selector": selector,
+                    "failure_class": "logical",  # Element doesn't exist (not retryable)
                     "content": ""
                 }
             
@@ -134,5 +135,6 @@ class GetText(Tool):
                 "status": "error",
                 "error": f"Get text failed: {e}",
                 "selector": selector,
+                "failure_class": "logical",  # Read operation failure (not retryable)
                 "content": ""
             }

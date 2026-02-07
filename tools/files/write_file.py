@@ -90,9 +90,17 @@ class WriteFile(Tool):
         create_if_missing = args.get("create_if_missing", True)
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input (not retryable)
+            }
         if content is None:
-            return {"status": "error", "error": "Content is required"}
+            return {
+                "status": "error",
+                "error": "Content is required",
+                "failure_class": "logical"  # Invalid input (not retryable)
+            }
         
         # Normalize path FIRST
         path = normalize_path(raw_path)
@@ -114,11 +122,16 @@ class WriteFile(Tool):
                 return {
                     "status": "error",
                     "error": f"File has content and overwrite=False: {path}",
-                    "hint": "Set overwrite=True to replace content"
+                    "hint": "Set overwrite=True to replace content",
+                    "failure_class": "logical"  # Policy violation (not retryable)
                 }
         else:
             if not create_if_missing:
-                return {"status": "error", "error": f"File does not exist: {path}"}
+                return {
+                    "status": "error",
+                    "error": f"File does not exist: {path}",
+                    "failure_class": "logical"  # File doesn't exist (not retryable)
+                }
             
             # Validate parent creation
             if not path.parent.exists():
@@ -145,6 +158,20 @@ class WriteFile(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied: {path}"}
+            return {
+                "status": "error",
+                "error": f"Permission denied: {path}",
+                "failure_class": "permission"  # Access denied (not retryable)
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to write file: {e}"}
+            error_str = str(e).lower()
+            # Determine if transient (environmental) or permanent (logical)
+            if "device" in error_str or "network" in error_str or "timeout" in error_str or "disk full" in error_str:
+                failure_class = "environmental"
+            else:
+                failure_class = "logical"
+            return {
+                "status": "error",
+                "error": f"Failed to write file: {e}",
+                "failure_class": failure_class
+            }

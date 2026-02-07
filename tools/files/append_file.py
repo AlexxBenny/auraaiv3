@@ -84,9 +84,17 @@ class AppendFile(Tool):
         add_newline = args.get("newline", True)
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input
+            }
         if content is None:
-            return {"status": "error", "error": "Content is required"}
+            return {
+                "status": "error",
+                "error": "Content is required",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # Normalize path FIRST
         path = normalize_path(raw_path)
@@ -94,18 +102,27 @@ class AppendFile(Tool):
         # Validate write is allowed
         valid, error = validate_write_path(path)
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure
+            }
         
         # File must exist for append
         if not path.exists():
             return {
                 "status": "error",
                 "error": f"File does not exist: {path}",
-                "hint": "Use files.create_file or files.write_file first"
+                "hint": "Use files.create_file or files.write_file first",
+                "failure_class": "logical"  # File doesn't exist
             }
         
         if not path.is_file():
-            return {"status": "error", "error": f"Not a file: {path}"}
+            return {
+                "status": "error",
+                "error": f"Not a file: {path}",
+                "failure_class": "logical"  # Wrong type
+            }
         
         try:
             # Get current content to check if we need newline
@@ -136,6 +153,15 @@ class AppendFile(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied: {path}"}
+            return {
+                "status": "error",
+                "error": f"Permission denied: {path}",
+                "failure_class": "permission"  # Access denied
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to append to file: {e}"}
+            # File operations can fail due to locks, disk issues (environmental)
+            return {
+                "status": "error",
+                "error": f"Failed to append to file: {e}",
+                "failure_class": "environmental"  # Transient IO issue
+            }

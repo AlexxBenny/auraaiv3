@@ -81,7 +81,8 @@ class SetAirplaneMode(Tool):
         if enabled is None:
             return {
                 "status": "error",
-                "error": "Required argument 'enabled' not provided"
+                "error": "Required argument 'enabled' not provided",
+                "failure_class": "logical"  # Invalid input
             }
         
         try:
@@ -136,17 +137,26 @@ if ($radioManagement) {
             else:
                 return {
                     "status": "error",
-                    "error": f"PowerShell error: {result.stderr}"
+                    "error": f"PowerShell error: {result.stderr}",
+                    "failure_class": "environmental"  # PowerShell/system issue
                 }
                 
         except subprocess.TimeoutExpired:
             return {
                 "status": "error",
-                "error": "Set airplane mode timed out"
+                "error": "Set airplane mode timed out",
+                "failure_class": "environmental"  # Timeout (retryable)
+            }
+        except PermissionError:
+            return {
+                "status": "error",
+                "error": "Permission denied setting airplane mode",
+                "failure_class": "permission"  # Access denied
             }
         except Exception as e:
             logging.error(f"Failed to set airplane mode: {e}")
             return {
                 "status": "error",
-                "error": f"Failed to set airplane mode: {str(e)}"
+                "error": f"Failed to set airplane mode: {str(e)}",
+                "failure_class": "environmental"  # Transient system issue
             }

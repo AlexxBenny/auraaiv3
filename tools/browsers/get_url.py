@@ -90,6 +90,7 @@ class GetUrl(Tool):
                 return {
                     "status": "error",
                     "error": "No active browser session",
+                    "failure_class": "logical",  # Session doesn't exist (not retryable)
                     "content": ""
                 }
             
@@ -110,5 +111,6 @@ class GetUrl(Tool):
             return {
                 "status": "error",
                 "error": f"Failed to get URL: {e}",
+                "failure_class": "environmental",  # Browser state issue (potentially retryable)
                 "content": ""
             }

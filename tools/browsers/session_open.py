@@ -112,12 +112,22 @@ class SessionOpen(Tool):
                 "status": "error",
                 "error": str(e),
                 "error_type": "dependency",
+                "failure_class": "environmental",  # Browser engine dependency issue (retryable)
                 "content": ""
             }
         except Exception as e:
             logging.error(f"Session open failed: {e}")
+            error_str = str(e).lower()
+            # Determine failure class based on error type
+            if "permission" in error_str or "access" in error_str:
+                failure_class = "permission"
+            elif "timeout" in error_str or "connection" in error_str:
+                failure_class = "environmental"
+            else:
+                failure_class = "environmental"  # Default to environmental for browser ops
             return {
                 "status": "error",
                 "error": f"Failed to open browser session: {e}",
+                "failure_class": failure_class,
                 "content": ""
             }

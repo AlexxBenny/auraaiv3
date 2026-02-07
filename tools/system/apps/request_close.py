@@ -71,7 +71,11 @@ class RequestCloseApp(Tool):
     def execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute close request"""
         if not self.validate_args(args):
-            return {"status": "error", "error": "Invalid arguments"}
+            return {
+                "status": "error",
+                "error": "Invalid arguments",
+                "failure_class": "logical"  # Invalid input
+            }
         
         handle_id = args.get("handle_id")
         window_title = args.get("window_title")
@@ -79,7 +83,11 @@ class RequestCloseApp(Tool):
         timeout_sec = args.get("timeout_ms", 3000) / 1000.0
         
         if not (handle_id or window_title or pid):
-            return {"status": "error", "error": "Must provide handle_id, window_title, or pid"}
+            return {
+                "status": "error",
+                "error": "Must provide handle_id, window_title, or pid",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # === PATH 1: Handle-based resolution (most precise) ===
         if handle_id:
@@ -88,7 +96,8 @@ class RequestCloseApp(Tool):
                 return {
                     "status": "error",
                     "error": f"Handle not found: {handle_id[:8]}...",
-                    "identity_basis": "unknown"
+                    "identity_basis": "unknown",
+                    "failure_class": "logical"  # Handle doesn't exist
                 }
             
             # Resolve handle to current windows
@@ -114,7 +123,8 @@ class RequestCloseApp(Tool):
                     "status": "error",
                     "error": "Ambiguous close request: Handle resolved to multiple windows",
                     "handle_id": handle_id,
-                    "matches": [{"pid": m["pid"], "title": m["title"]} for m in matches[:5]]
+                    "matches": [{"pid": m["pid"], "title": m["title"]} for m in matches[:5]],
+                    "failure_class": "logical"  # Ambiguity (not retryable)
                 }
             
             target = matches[0]
@@ -123,7 +133,11 @@ class RequestCloseApp(Tool):
             matches = find_windows(pid=pid, title_substring=window_title)
             
             if len(matches) == 0:
-                return {"status": "error", "error": "No matching windows found"}
+                return {
+                    "status": "error",
+                    "error": "No matching windows found",
+                    "failure_class": "logical"  # Window doesn't exist
+                }
             
             if len(matches) > 1:
                 return {
@@ -131,7 +145,8 @@ class RequestCloseApp(Tool):
                     "error": "Ambiguous close request",
                     "matches": [
                          {"pid": m["pid"], "title": m["title"]} for m in matches[:5]
-                    ]
+                    ],
+                    "failure_class": "logical"  # Ambiguity (not retryable)
                 }
             
             target = matches[0]
@@ -169,7 +184,9 @@ class RequestCloseApp(Tool):
             }
             
         except Exception as e:
+            # Window operations can fail due to transient OS state (environmental)
             return {
                 "status": "error",
-                "error": f"Close request failed: {str(e)}"
+                "error": f"Close request failed: {str(e)}",
+                "failure_class": "environmental"  # Transient OS state
             }

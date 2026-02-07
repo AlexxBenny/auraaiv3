@@ -80,17 +80,29 @@ class ListDirectory(Tool):
         include_hidden = args.get("include_hidden", False)
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # Normalize path
         path = normalize_path(raw_path)
         
         # Check existence
         if not path.exists():
-            return {"status": "error", "error": f"Directory does not exist: {path}"}
+            return {
+                "status": "error",
+                "error": f"Directory does not exist: {path}",
+                "failure_class": "logical"  # Directory doesn't exist
+            }
         
         if not path.is_dir():
-            return {"status": "error", "error": f"Not a directory: {path}"}
+            return {
+                "status": "error",
+                "error": f"Not a directory: {path}",
+                "failure_class": "logical"  # Wrong type
+            }
         
         try:
             files: List[Dict[str, Any]] = []
@@ -134,6 +146,15 @@ class ListDirectory(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied: {path}"}
+            return {
+                "status": "error",
+                "error": f"Permission denied: {path}",
+                "failure_class": "permission"  # Access denied
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to list directory: {e}"}
+            # Directory operations can fail due to transient IO issues (environmental)
+            return {
+                "status": "error",
+                "error": f"Failed to list directory: {e}",
+                "failure_class": "environmental"  # Transient IO issue
+            }

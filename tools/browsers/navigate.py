@@ -111,14 +111,23 @@ class Navigate(Tool):
                 return {
                     "status": "error",
                     "error": f"Navigation to {url} failed",
+                    "failure_class": "environmental",  # Timeout/network failure
                     "content": ""
                 }
                 
+        except TimeoutError as e:
+            return {
+                "status": "error",
+                "error": str(e),
+                "failure_class": "environmental",  # Network timeout
+                "content": ""
+            }
         except RuntimeError as e:
             return {
                 "status": "error",
                 "error": str(e),
                 "error_type": "dependency",
+                "failure_class": "environmental",  # Browser engine issue
                 "content": ""
             }
         except Exception as e:
@@ -126,5 +135,6 @@ class Navigate(Tool):
             return {
                 "status": "error",
                 "error": f"Navigation failed: {e}",
+                "failure_class": "environmental",  # Default to environmental for browser ops
                 "content": ""
             }

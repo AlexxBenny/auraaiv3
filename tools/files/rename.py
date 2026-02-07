@@ -78,16 +78,25 @@ class Rename(Tool):
         new_name = args.get("new_name")
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input
+            }
         if not new_name:
-            return {"status": "error", "error": "New name is required"}
+            return {
+                "status": "error",
+                "error": "New name is required",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # Validate new_name doesn't contain path separators
         if "/" in new_name or "\\" in new_name:
             return {
                 "status": "error",
                 "error": "new_name must be a name, not a path",
-                "hint": "Use files.move to change location"
+                "hint": "Use files.move to change location",
+                "failure_class": "logical"  # Invalid input
             }
         
         # Normalize source path
@@ -95,7 +104,11 @@ class Rename(Tool):
         
         # Check source exists
         if not source.exists():
-            return {"status": "error", "error": f"Source does not exist: {source}"}
+            return {
+                "status": "error",
+                "error": f"Source does not exist: {source}",
+                "failure_class": "logical"  # File doesn't exist
+            }
         
         # Build destination path (same directory, new name)
         destination = source.parent / new_name
@@ -103,15 +116,27 @@ class Rename(Tool):
         # Validate we can modify source and destination
         valid, error = validate_delete_path(source)  # Need to "remove" old name
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure
+            }
         
         valid, error = validate_write_path(destination)
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure
+            }
         
         # Check destination doesn't exist
         if destination.exists():
-            return {"status": "error", "error": f"Destination already exists: {destination}"}
+            return {
+                "status": "error",
+                "error": f"Destination already exists: {destination}",
+                "failure_class": "logical"  # Conflict
+            }
         
         try:
             old_name = source.name
@@ -126,6 +151,15 @@ class Rename(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied"}
+            return {
+                "status": "error",
+                "error": f"Permission denied",
+                "failure_class": "permission"  # Access denied
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to rename: {e}"}
+            # File operations can fail due to locks (environmental)
+            return {
+                "status": "error",
+                "error": f"Failed to rename: {e}",
+                "failure_class": "environmental"  # Transient IO issue
+            }

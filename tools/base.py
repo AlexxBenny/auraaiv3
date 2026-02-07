@@ -86,6 +86,32 @@ class Tool(ABC):
         Override in subclasses. Default is "actuate" for backwards compatibility.
         """
         return "actuate"
+    
+    @property
+    def failure_class(self) -> str:
+        """Default classification of this tool's failure mode for recoverability.
+        
+        MUST be one of: "environmental", "logical", "permission", "unknown"
+        - environmental: network, timeout, transient OS state (RETRYABLE)
+        - logical: invalid input, element not found (NOT retryable)
+        - permission: access denied, elevation required (NOT retryable)
+        - unknown: unclassified failures (default, treated as potentially retryable)
+        
+        This is a DEFAULT. Tools may override this per-execution by including
+        "failure_class" in their result dictionary:
+        
+            return {
+                "status": "error",
+                "error": "Connection timed out",
+                "failure_class": "environmental"  # overrides default
+            }
+        
+        The orchestrator reads failure_class from the result first, then falls
+        back to this property if not present.
+        
+        Override in subclasses. Default is "unknown" for safety.
+        """
+        return "unknown"
 
     # =========================================================================
     # MANDATORY PRECONDITIONS - Enforced by ToolExecutor, NOT LLM

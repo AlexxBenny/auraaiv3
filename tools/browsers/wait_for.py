@@ -147,7 +147,7 @@ class WaitFor(Tool):
                 "content": f"Element {selector} is now {state}"
             }
             
-        except Exception as e:
+        except TimeoutError as e:
             # FAIL LOUD - no fallback, no retry
             logging.error(f"Wait timeout for '{selector}' state='{state}': {e}")
             return {
@@ -155,5 +155,16 @@ class WaitFor(Tool):
                 "error": f"Wait timeout: {e}",
                 "selector": selector,
                 "state": state,
+                "failure_class": "environmental",  # Element may appear later
+                "content": ""
+            }
+        except Exception as e:
+            logging.error(f"Wait failed for '{selector}': {e}")
+            return {
+                "status": "error",
+                "error": f"Wait failed: {e}",
+                "selector": selector,
+                "state": state,
+                "failure_class": "environmental",  # Default to environmental
                 "content": ""
             }

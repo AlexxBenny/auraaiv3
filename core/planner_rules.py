@@ -32,6 +32,18 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "action_class": "actuate",
         "description_template": "navigate:{url}",
         "required_params": ["url"],
+        # Allow semantic-only navigate (e.g., "open youtube") which produces semantic context
+        "allow_semantic_only": True,
+        # Context contracts: consumption (params filled from upstream contexts) and production
+        "context_consumption": {
+            # param_name: (context_domain, context_key)
+            # e.g., if platform missing, fill from ContextFrame(domain="browser", data["platform"])
+            "platform": ("browser", "platform")
+        },
+        "context_production": {
+            "domain": "browser",
+            "keys": ["platform"]
+        },
     },
     ("browser", "search"): {
         "intent": "browser_control",
@@ -41,6 +53,13 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "default_params": {"platform": "google"},
         "allowed_values": {
             "platform": {"google", "youtube", "bing", "duckduckgo", "github"},
+        },
+        "context_consumption": {
+            "platform": ("browser", "platform")
+        },
+        "context_production": {
+            "domain": "browser",
+            "keys": ["platform"]
         },
     },
     ("browser", "wait"): {

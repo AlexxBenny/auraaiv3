@@ -123,7 +123,8 @@ class TakeScreenshot(Tool):
                 return {
                     "status": "error",
                     "error": f"PowerShell execution failed: {result.stderr}",
-                    "path": None
+                    "path": None,
+                    "failure_class": "environmental"  # PowerShell/system issue
                 }
             
             if os.path.exists(filepath):
@@ -136,19 +137,22 @@ class TakeScreenshot(Tool):
                 return {
                     "status": "error",
                     "error": "Screenshot file was not created",
-                    "path": None
+                    "path": None,
+                    "failure_class": "environmental"  # File creation issue
                 }
                 
         except subprocess.TimeoutExpired:
             return {
                 "status": "error",
                 "error": "Screenshot operation timed out",
-                "path": None
+                "path": None,
+                "failure_class": "environmental"  # Timeout (retryable)
             }
         except Exception as e:
             return {
                 "status": "error",
                 "error": str(e),
-                "path": None
+                "path": None,
+                "failure_class": "environmental"  # Transient system issue
             }
 

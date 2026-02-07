@@ -6,6 +6,7 @@
 # Used when user says "search for X" or "open youtube and search for X"
 search:
   default_browser: chrome
+  default_engine: google  # Fallback when platform is unknown
   engines:
     google: "https://www.google.com/search?q={query}"
     youtube: "https://www.youtube.com/results?search_query={query}"

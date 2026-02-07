@@ -74,7 +74,11 @@ class FocusApp(Tool):
     def execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute focus"""
         if not self.validate_args(args):
-            return {"status": "error", "error": "Invalid arguments"}
+            return {
+                "status": "error",
+                "error": "Invalid arguments",
+                "failure_class": "logical"  # Invalid input
+            }
         
         handle_id = args.get("handle_id")
         app_name = args.get("app_name")
@@ -82,7 +86,11 @@ class FocusApp(Tool):
         pid = args.get("pid")
         
         if not (handle_id or app_name or window_title or pid):
-            return {"status": "error", "error": "Must provide handle_id, app_name, window_title, or pid"}
+            return {
+                "status": "error",
+                "error": "Must provide handle_id, app_name, window_title, or pid",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # === PATH 1: Handle-based resolution (most precise) ===
         if handle_id:
@@ -91,7 +99,8 @@ class FocusApp(Tool):
                 return {
                     "status": "error",
                     "error": f"Handle not found: {handle_id[:8]}...",
-                    "identity_basis": "unknown"
+                    "identity_basis": "unknown",
+                    "failure_class": "logical"  # Handle doesn't exist
                 }
             
             # Resolve handle to current windows
@@ -108,7 +117,8 @@ class FocusApp(Tool):
                     "error": "Handle resolved to no windows (app may have closed)",
                     "handle_id": handle_id,
                     "resolution_confidence": handle.resolution_confidence.value,
-                    "identity_basis": handle.identity_basis.value
+                    "identity_basis": handle.identity_basis.value,
+                    "failure_class": "logical"  # Window doesn't exist
                 }
             
             if len(matches) > 1:
@@ -116,7 +126,8 @@ class FocusApp(Tool):
                     "status": "error",
                     "error": "start_ambiguous: Handle resolved to multiple windows",
                     "handle_id": handle_id,
-                    "matches": [{"pid": m["pid"], "title": m["title"]} for m in matches[:5]]
+                    "matches": [{"pid": m["pid"], "title": m["title"]} for m in matches[:5]],
+                    "failure_class": "logical"  # Ambiguity (not retryable)
                 }
             
             # Single match from handle - go directly to focus
@@ -130,7 +141,8 @@ class FocusApp(Tool):
                 return {
                     "status": "error",
                     "error": "No matching windows found",
-                    "criteria": args
+                    "criteria": args,
+                    "failure_class": "logical"  # Window doesn't exist
                 }
                 
             if len(matches) > 1:
@@ -144,7 +156,8 @@ class FocusApp(Tool):
                             "process": m["process_name"]
                         }
                         for m in matches[:5]  # Limit output
-                    ]
+                    ],
+                    "failure_class": "logical"  # Ambiguity (not retryable)
                 }
                 
             target = matches[0]
@@ -170,7 +183,9 @@ class FocusApp(Tool):
             }
             
         except Exception as e:
+            # Window operations can fail due to transient OS state (environmental)
             return {
                 "status": "error",
-                "error": f"Focus failed: {str(e)}"
+                "error": f"Focus failed: {str(e)}",
+                "failure_class": "environmental"  # Transient OS state
             }

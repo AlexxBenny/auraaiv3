@@ -105,3 +105,43 @@ class BrowserConfig:
     def reload(self) -> None:
         """Force reload configuration (for testing)."""
         self._load()
+    
+    @staticmethod
+    def resolve_browser_profile_path(browser_type: str, profile_name: str) -> Optional[str]:
+        """Resolve browser profile name to actual User Data directory path.
+        
+        For Playwright, we point to the "User Data" directory (parent),
+        not the profile subdirectory. Playwright will use the specified profile.
+        
+        Args:
+            browser_type: Browser type (chrome, edge)
+            profile_name: Profile name (e.g., "Default", "Profile 1")
+            
+        Returns:
+            Full path to browser's User Data directory or None if not found
+        """
+        import os
+        from pathlib import Path
+        
+        local_appdata = os.getenv("LOCALAPPDATA")
+        if not local_appdata:
+            return None
+        
+        # Map browser type to User Data directory
+        user_data_paths = {
+            "chrome": Path(local_appdata) / "Google" / "Chrome" / "User Data",
+            "edge": Path(local_appdata) / "Microsoft" / "Edge" / "User Data",
+        }
+        
+        user_data_dir = user_data_paths.get(browser_type)
+        if not user_data_dir:
+            return None
+        
+        # Verify profile exists
+        profile_path = user_data_dir / profile_name
+        if profile_path.exists():
+            # Return User Data directory (parent), not profile subdirectory
+            # Playwright will use the specified profile within it
+            return str(user_data_dir)
+        
+        return None

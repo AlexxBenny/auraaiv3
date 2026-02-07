@@ -90,6 +90,7 @@ class GetTitle(Tool):
                 return {
                     "status": "error",
                     "error": "No active browser session",
+                    "failure_class": "logical",  # Session doesn't exist (not retryable)
                     "content": ""
                 }
             
@@ -110,5 +111,6 @@ class GetTitle(Tool):
             return {
                 "status": "error",
                 "error": f"Failed to get title: {e}",
+                "failure_class": "environmental",  # Browser state issue (potentially retryable)
                 "content": ""
             }

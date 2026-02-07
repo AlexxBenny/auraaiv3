@@ -84,7 +84,11 @@ class DeleteFolder(Tool):
         recursive = args.get("recursive", False)
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # Normalize path FIRST
         path = normalize_path(raw_path)
@@ -92,17 +96,26 @@ class DeleteFolder(Tool):
         # CRITICAL: Validate delete is allowed
         valid, error = validate_delete_path(path)
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure
+            }
         
         # Check existence
         if not path.exists():
-            return {"status": "error", "error": f"Folder does not exist: {path}"}
+            return {
+                "status": "error",
+                "error": f"Folder does not exist: {path}",
+                "failure_class": "logical"  # Folder doesn't exist
+            }
         
         if not path.is_dir():
             return {
                 "status": "error",
                 "error": f"Not a folder: {path}",
-                "hint": "Use files.delete_file for files"
+                "hint": "Use files.delete_file for files",
+                "failure_class": "logical"  # Wrong type
             }
         
         # Check if empty
@@ -113,7 +126,8 @@ class DeleteFolder(Tool):
             return {
                 "status": "error",
                 "error": f"Folder is not empty ({len(contents)} items)",
-                "hint": "Set recursive=True to delete folder and all contents"
+                "hint": "Set recursive=True to delete folder and all contents",
+                "failure_class": "logical"  # Policy violation
             }
         
         try:
@@ -132,6 +146,15 @@ class DeleteFolder(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied: {path}"}
+            return {
+                "status": "error",
+                "error": f"Permission denied: {path}",
+                "failure_class": "permission"  # Access denied
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to delete folder: {e}"}
+            # File operations can fail due to locks, in-use files (environmental)
+            return {
+                "status": "error",
+                "error": f"Failed to delete folder: {e}",
+                "failure_class": "environmental"  # Transient IO issue
+            }

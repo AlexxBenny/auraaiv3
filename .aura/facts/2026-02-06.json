@@ -1,0 +1,37 @@
+{
+  "date": "2026-02-06",
+  "schema_version": 1,
+  "count": 2,
+  "facts": [
+    {
+      "fact_id": "91ac0949-0de7-4137-a226-93ac8d490175",
+      "timestamp": "2026-02-06T23:05:35.598119",
+      "tool": "system.audio.mute",
+      "query": "mute system",
+      "facts": {
+        "tool": "system.audio.mute",
+        "muted": true
+      },
+      "fact_keys": [
+        "muted",
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "20f70aa8-4eaa-40dd-bb86-0ffb73691efd",
+      "timestamp": "2026-02-06T23:34:54.262414",
+      "tool": "system.apps.launch.shell",
+      "query": "open chrome and notepad",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

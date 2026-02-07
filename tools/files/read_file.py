@@ -79,7 +79,11 @@ class ReadFile(Tool):
         encoding = args.get("encoding", "utf-8")
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input (not retryable)
+            }
         
         # Normalize path
         path = normalize_path(raw_path)
@@ -87,10 +91,18 @@ class ReadFile(Tool):
         # Validate read is allowed
         valid, error = validate_read_path(path)
         if not valid:
-            return {"status": "error", "error": error}
+            return {
+                "status": "error",
+                "error": error,
+                "failure_class": "logical"  # Validation failure (not retryable)
+            }
         
         if not path.is_file():
-            return {"status": "error", "error": f"Not a file: {path}"}
+            return {
+                "status": "error",
+                "error": f"Not a file: {path}",
+                "failure_class": "logical"  # Path exists but is not a file (not retryable)
+            }
         
         try:
             content = path.read_text(encoding=encoding)
@@ -107,9 +119,30 @@ class ReadFile(Tool):
             return {
                 "status": "error",
                 "error": f"Cannot decode file with {encoding} encoding",
-                "hint": "Try a different encoding like 'latin-1'"
+                "hint": "Try a different encoding like 'latin-1'",
+                "failure_class": "logical"  # Encoding mismatch (not retryable)
             }
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied: {path}"}
+            return {
+                "status": "error",
+                "error": f"Permission denied: {path}",
+                "failure_class": "permission"  # Access denied (not retryable)
+            }
+        except FileNotFoundError:
+            return {
+                "status": "error",
+                "error": f"File not found: {path}",
+                "failure_class": "logical"  # File doesn't exist (not retryable)
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to read file: {e}"}
+            error_str = str(e).lower()
+            # Determine if transient (environmental) or permanent (logical)
+            if "device" in error_str or "network" in error_str or "timeout" in error_str:
+                failure_class = "environmental"
+            else:
+                failure_class = "logical"
+            return {
+                "status": "error",
+                "error": f"Failed to read file: {e}",
+                "failure_class": failure_class
+            }

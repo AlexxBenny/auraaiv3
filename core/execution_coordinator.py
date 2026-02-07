@@ -219,6 +219,14 @@ class ExecutionCoordinator:
         needs_iteration = plan.get("needs_iteration", False)
         conditionals = plan.get("conditionals", [])
         
+        # Log block types before normalization
+        for i, block in enumerate(blocks):
+            logging.info(
+                f"Coordinator block[{i}]: id={block.get('id')}, "
+                f"pipeline={block.get('pipeline')}, "
+                f"input='{str(block.get('input', ''))[:60]}...'"
+            )
+        
         # INVARIANT ENFORCEMENT: Prevent LLM from fragmenting multi-goal queries
         # This is the code-level guarantee - prompts are not trusted
         blocks = self._normalize_blocks(blocks, conditionals, user_input)
@@ -294,25 +302,49 @@ class ExecutionCoordinator:
         non_goal_blocks = [b for b in blocks if b.get("pipeline") != "goal"]
         
         # INVARIANT ENFORCEMENT: multi-goal + no conditionals = ONE goal block
-        if len(goal_blocks) > 1 and len(conditionals) == 0:
+        conditionals_count = len(conditionals) if conditionals else 0
+        total_blocks = len(blocks)
+        
+        # Log block breakdown
+        if non_goal_blocks:
+            for nb in non_goal_blocks:
+                logging.info(
+                    f"Coordinator normalize: non-goal block id={nb.get('id')}, "
+                    f"pipeline={nb.get('pipeline')}"
+                )
+        
+        logging.info(
+            f"Coordinator normalize: {len(goal_blocks)} goal block(s), "
+            f"{len(non_goal_blocks)} non-goal block(s), "
+            f"{conditionals_count} conditional(s), "
+            f"total={total_blocks}"
+        )
+        
+        # Merge if: multiple blocks (goal or mixed) AND no conditionals
+        # This enforces: multi-goal + no conditionals = ONE goal block
+        should_merge = total_blocks > 1 and conditionals_count == 0
+        
+        if should_merge:
             logging.warning(
                 f"SEMANTIC ATOMICITY RESTORED: LLM fragmented multi-goal query into "
-                f"{len(goal_blocks)} goal blocks without conditionals. "
-                f"Merging into single block to preserve dependency context. "
-                f"(multi-goal query without conditionals must execute as one goal block)"
+                f"{total_blocks} block(s) ({len(goal_blocks)} goal, {len(non_goal_blocks)} non-goal) "
+                f"without conditionals. Merging into single goal block to preserve dependency context."
             )
             
-            # Merge all goal block inputs into single block
+            # Merge ALL blocks (goal + non-goal) into single goal block
+            # Use ORIGINAL user input - critical for preserving semantic context
             merged_block = {
                 "id": "b0",
                 "pipeline": "goal",
-                "input": original_input,  # Use ORIGINAL user input - critical!
+                "input": original_input,
                 "depends_on": [],
                 "parallel_safe": False
             }
             
-            return [merged_block] + non_goal_blocks
+            logging.info(f"Coordinator: merged {total_blocks} blocks → 1 goal block")
+            return [merged_block]
         
+        logging.info(f"Coordinator: no merge needed ({len(goal_blocks)} goal blocks, {conditionals_count} conditionals)")
         return blocks
     
     def _execute_all_blocks(

@@ -75,7 +75,11 @@ class DeleteFile(Tool):
         raw_path = args.get("path")
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input (not retryable)
+            }
         
         # Normalize path FIRST (prevents traversal attacks)
         path = normalize_path(raw_path)
@@ -83,18 +87,27 @@ class DeleteFile(Tool):
         # CRITICAL: Validate delete is allowed
         valid, error = validate_delete_path(path)
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure (not retryable)
+            }
         
         # Check existence
         if not path.exists():
-            return {"status": "error", "error": f"File does not exist: {path}"}
+            return {
+                "status": "error",
+                "error": f"File does not exist: {path}",
+                "failure_class": "logical"  # File doesn't exist (not retryable)
+            }
         
         # Must be a file, not directory
         if not path.is_file():
             return {
                 "status": "error",
                 "error": f"Not a file: {path}",
-                "hint": "Use files.delete_folder for directories"
+                "hint": "Use files.delete_folder for directories",
+                "failure_class": "logical"  # Wrong type (not retryable)
             }
         
         try:
@@ -113,6 +126,20 @@ class DeleteFile(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied: {path}"}
+            return {
+                "status": "error",
+                "error": f"Permission denied: {path}",
+                "failure_class": "permission"  # Access denied (not retryable)
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to delete file: {e}"}
+            error_str = str(e).lower()
+            # Determine if transient (environmental) or permanent (logical)
+            if "device" in error_str or "network" in error_str or "timeout" in error_str:
+                failure_class = "environmental"
+            else:
+                failure_class = "logical"
+            return {
+                "status": "error",
+                "error": f"Failed to delete file: {e}",
+                "failure_class": failure_class
+            }

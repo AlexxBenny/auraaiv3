@@ -85,9 +85,17 @@ class Move(Tool):
         overwrite = args.get("overwrite", False)
         
         if not raw_source:
-            return {"status": "error", "error": "Source is required"}
+            return {
+                "status": "error",
+                "error": "Source is required",
+                "failure_class": "logical"  # Invalid input
+            }
         if not raw_dest:
-            return {"status": "error", "error": "Destination is required"}
+            return {
+                "status": "error",
+                "error": "Destination is required",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # Normalize paths FIRST
         source = normalize_path(raw_source)
@@ -95,12 +103,20 @@ class Move(Tool):
         
         # Check source exists
         if not source.exists():
-            return {"status": "error", "error": f"Source does not exist: {source}"}
+            return {
+                "status": "error",
+                "error": f"Source does not exist: {source}",
+                "failure_class": "logical"  # File doesn't exist
+            }
         
         # Validate we can modify source
         valid, error = validate_delete_path(source)
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure
+            }
         
         # If destination is a directory, put source inside it
         if destination.is_dir():
@@ -109,7 +125,11 @@ class Move(Tool):
         # Validate we can write to destination
         valid, error = validate_write_path(destination)
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure
+            }
         
         # Check destination
         if destination.exists():
@@ -117,7 +137,8 @@ class Move(Tool):
                 return {
                     "status": "error",
                     "error": f"Destination exists and overwrite=False: {destination}",
-                    "hint": "Set overwrite=True to replace"
+                    "hint": "Set overwrite=True to replace",
+                    "failure_class": "logical"  # Policy violation
                 }
             # Remove destination if overwriting
             if destination.is_file():
@@ -139,6 +160,16 @@ class Move(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied"}
+            return {
+                "status": "error",
+                "error": f"Permission denied",
+                "failure_class": "permission"  # Access denied
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to move: {e}"}
+            # File operations can fail due to locks, disk issues (environmental)
+            # or invalid paths (logical). Default to environmental for IO operations.
+            return {
+                "status": "error",
+                "error": f"Failed to move: {e}",
+                "failure_class": "environmental"  # Transient IO issue
+            }

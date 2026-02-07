@@ -22,6 +22,7 @@ from typing import Dict, Any, List, Optional, Literal, Tuple
 from urllib.parse import quote
 
 from agents.goal_interpreter import Goal
+from core.context_frame import ContextFrame
 
 
 # =============================================================================
@@ -68,6 +69,7 @@ class PlannedAction:
     expected_effect: str
     depends_on: List[str] = field(default_factory=list)
     action_class: Optional[str] = None  # "actuate" | "observe" | "query"
+    produced_context: Optional[ContextFrame] = None  # Semantic frame produced by this action
 
 
 @dataclass
@@ -122,6 +124,7 @@ class GoalPlanner:
         goal: Goal,
         world_state: Optional[Dict[str, Any]] = None,
         capabilities: Optional[List[Dict]] = None
+        , context_frames: Optional[List[ContextFrame]] = None
     ) -> PlanResult:
         """Generate minimal plan to achieve goal.
         
@@ -167,7 +170,42 @@ class GoalPlanner:
         
         # PARAM VALIDATION - fail-fast on semantic errors
         try:
-            validated_params = validate_params(goal.domain, goal.verb, params, rule)
+            # Read context metadata from rule (table-driven)
+            consumption = rule.get("context_consumption", {})
+            production = rule.get("context_production")
+            allow_semantic_only = bool(rule.get("allow_semantic_only", False))
+
+            # Light-weight schema validation for metadata (log warnings only)
+            if consumption and not isinstance(consumption, dict):
+                logging.warning(f"PLANNER_RULES: context_consumption for ({goal.domain},{goal.verb}) must be a dict")
+                consumption = {}
+            if production and not (isinstance(production, dict) and "domain" in production and isinstance(production.get("keys", []), list)):
+                logging.warning(f"PLANNER_RULES: context_production for ({goal.domain},{goal.verb}) malformed")
+                production = None
+
+            # If allow_semantic_only and required params missing, accept limited semantic plan
+            if allow_semantic_only and any(p not in params for p in rule.get("required_params", [])):
+                # Validate allowed values for any present params
+                allowed = rule.get("allowed_values", {})
+                for pname, pset in allowed.items():
+                    if pname in params and params[pname] not in pset:
+                        raise ParamValidationError(
+                            f"({goal.domain}, {goal.verb}): Invalid value '{params[pname]}' for '{pname}'. Allowed: {sorted(pset)}"
+                        )
+                validated_params = params.copy()
+                logging.info(f"GoalPlanner: Semantic-only {goal.domain}.{goal.verb} accepted (no technical params) with params={validated_params}")
+            else:
+                # Fill missing params from context_frames according to rule metadata
+                if context_frames and consumption:
+                    for param_name, (ctx_domain, ctx_key) in consumption.items():
+                        if param_name not in params or params.get(param_name) is None:
+                            for cf in context_frames:
+                                if cf.domain == ctx_domain and ctx_key in cf.data:
+                                    params[param_name] = cf.data[ctx_key]
+                                    logging.info(f"GoalPlanner: Filled param '{param_name}' from ContextFrame(domain={cf.domain}, produced_by={cf.produced_by})")
+                                    break
+
+                validated_params = validate_params(goal.domain, goal.verb, params, rule)
             logging.info(f"  Validated params: {validated_params}")
         except ParamValidationError as e:
             logging.error(f"PLANNER FAIL: Param validation failed: {e}")
@@ -178,6 +216,36 @@ class GoalPlanner:
         
         # Generate action ID
         action_id = goal.goal_id or f"{goal.domain}_{goal.verb}_1"
+        
+        # Construct search URL for browser.search goals
+        # Trust validate_params() contract - platform is guaranteed to exist
+        if goal.domain == "browser" and goal.verb == "search":
+            platform = validated_params["platform"]  # Trust contract, no silent default
+            query = validated_params["query"]
+            
+            if query:
+                search_url = self._construct_search_url(platform, query)
+                validated_params["url"] = search_url
+                logging.info(f"GoalPlanner: Constructed search URL for {platform}: {search_url}")
+
+        # Produce ContextFrame according to rule metadata (after validation)
+        produced_ctx: Optional[ContextFrame] = None
+        production = rule.get("context_production")
+        if production:
+            try:
+                prod_domain = production.get("domain")
+                prod_keys = production.get("keys", [])
+                data = {
+                    k: validated_params[k]
+                    for k in prod_keys
+                    if k in validated_params and validated_params[k] is not None
+                }
+                if data:
+                    produced_ctx = ContextFrame(domain=prod_domain, data=data, produced_by=action_id)
+                    logging.info(f"GoalPlanner: Produced ContextFrame(domain={prod_domain}, keys={list(data.keys())}, produced_by={action_id})")
+            except Exception as e:
+                logging.warning(f"GoalPlanner: Failed to produce ContextFrame for {goal.domain}.{goal.verb}: {e}")
+                produced_ctx = None
         
         # Format description using rule template
         description = format_description(rule, validated_params)
@@ -192,6 +260,7 @@ class GoalPlanner:
             args=validated_params,
             expected_effect=f"{goal.verb} completed",
             action_class=rule["action_class"],
+            produced_context=produced_ctx,
         )
         
         logging.info(f"=== GoalPlanner.plan() SUCCESS ===")
@@ -206,6 +275,59 @@ class GoalPlanner:
             )
         )
 
+    # =========================================================================
+    # URL CONSTRUCTION HELPERS
+    # =========================================================================
+    
+    def _construct_search_url(self, platform: str, query: str) -> str:
+        """Construct search URL from platform and query.
+        
+        Uses templates from AppsConfig singleton. This ensures deterministic URL
+        construction for browser.search goals, avoiding LLM-dependent URL generation
+        in ToolResolver.
+        
+        NOTE: URL encoding is a layer boundary leak (planner shouldn't know HTTP
+        details), but it's tolerable for now. Future: Move to URLBuilder layer.
+        
+        Args:
+            platform: Search platform (google, youtube, bing, etc.)
+            query: Search query string
+            
+        Returns:
+            Constructed search URL
+        """
+        from core.apps_config import AppsConfig
+        from urllib.parse import quote
+        
+        # Get template from singleton config (cached, no disk I/O per call)
+        apps_config = AppsConfig.get()
+        template = apps_config.get_search_template(platform)
+        
+        if not template:
+            # Config-driven fallback (not hardcoded)
+            default_engine = apps_config.get_default_search_engine()
+            template = apps_config.get_search_template(default_engine)
+            
+            if not template:
+                # Last resort: use Google template from defaults
+                template = "https://www.google.com/search?q={query}"
+            
+            logging.warning(
+                f"GoalPlanner: Unknown search platform '{platform}', "
+                f"using default engine '{default_engine}'"
+            )
+        
+        # URL encode query (strict encoding, no safe chars)
+        # NOTE: This is a layer boundary leak - planner knows HTTP details
+        # Acceptable for now, but consider moving to URLBuilder layer in future
+        encoded_query = quote(query, safe='')
+        
+        # Construct URL
+        url = template.format(query=encoded_query)
+        logging.debug(f"GoalPlanner: Constructed search URL: {url}")
+        
+        return url
+    
     # =========================================================================
     # DEPRECATED METHODS REMOVED (Phase 4)
     # =========================================================================

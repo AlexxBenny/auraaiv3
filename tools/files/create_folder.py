@@ -85,7 +85,11 @@ class CreateFolder(Tool):
         exist_ok = args.get("exist_ok", True)
         
         if not raw_path:
-            return {"status": "error", "error": "Path is required"}
+            return {
+                "status": "error",
+                "error": "Path is required",
+                "failure_class": "logical"  # Invalid input
+            }
         
         # Normalize path FIRST
         path = normalize_path(raw_path)
@@ -93,7 +97,11 @@ class CreateFolder(Tool):
         # Validate we can create here
         valid, error = validate_write_path(path)
         if not valid:
-            return {"status": "blocked", "error": error}
+            return {
+                "status": "blocked",
+                "error": error,
+                "failure_class": "logical"  # Validation failure
+            }
         
         # Check if exists
         if path.exists():
@@ -104,15 +112,27 @@ class CreateFolder(Tool):
                     "already_existed": True
                 }
             elif path.is_file():
-                return {"status": "error", "error": f"A file exists at this path: {path}"}
+                return {
+                    "status": "error",
+                    "error": f"A file exists at this path: {path}",
+                    "failure_class": "logical"  # Conflict
+                }
             else:
-                return {"status": "error", "error": f"Path already exists: {path}"}
+                return {
+                    "status": "error",
+                    "error": f"Path already exists: {path}",
+                    "failure_class": "logical"  # Conflict
+                }
         
         # Validate parent creation if needed
         if create_parents and not path.parent.exists():
             valid, error = validate_parent_creation(path)
             if not valid:
-                return {"status": "blocked", "error": error}
+                return {
+                    "status": "blocked",
+                    "error": error,
+                    "failure_class": "logical"  # Validation failure
+                }
         
         try:
             path.mkdir(parents=create_parents, exist_ok=exist_ok)
@@ -125,12 +145,22 @@ class CreateFolder(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied: {path}"}
+            return {
+                "status": "error",
+                "error": f"Permission denied: {path}",
+                "failure_class": "permission"  # Access denied
+            }
         except FileNotFoundError:
             return {
                 "status": "error",
                 "error": f"Parent directory does not exist",
-                "hint": "Set parents=True to create parent directories"
+                "hint": "Set parents=True to create parent directories",
+                "failure_class": "logical"  # Parent doesn't exist
             }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to create folder: {e}"}
+            # File operations can fail due to locks, disk issues (environmental)
+            return {
+                "status": "error",
+                "error": f"Failed to create folder: {e}",
+                "failure_class": "environmental"  # Transient IO issue
+            }

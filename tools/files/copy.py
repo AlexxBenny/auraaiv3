@@ -143,6 +143,19 @@ class Copy(Tool):
             }
             
         except PermissionError:
-            return {"status": "error", "error": f"Permission denied"}
+            return {
+                "status": "error",
+                "error": f"Permission denied",
+                "failure_class": "permission"  # Access denied (not retryable)
+            }
         except OSError as e:
-            return {"status": "error", "error": f"Failed to copy: {e}"}
+            error_str = str(e).lower()
+            if "device" in error_str or "network" in error_str or "timeout" in error_str or "disk full" in error_str:
+                failure_class = "environmental"
+            else:
+                failure_class = "logical"
+            return {
+                "status": "error",
+                "error": f"Failed to copy: {e}",
+                "failure_class": failure_class
+            }

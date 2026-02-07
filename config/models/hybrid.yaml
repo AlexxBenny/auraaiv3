@@ -107,3 +107,18 @@ tda:
   fallback:
     provider: gemini
     model: gemini-2.5-flash
+
+# ============================================================================
+# Phase 5: Plan Repair (conservative, low temperature)
+# ============================================================================
+
+repair:
+  primary:
+    provider: ollama
+    model: llama3:8b
+    base_url: http://localhost:11434
+    temperature: 0.2  # Conservative for repair reasoning
+  fallback:
+    provider: gemini
+    model: gemini-2.5-flash
+    temperature: 0.2

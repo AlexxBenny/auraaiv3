@@ -131,7 +131,11 @@ class LaunchAppShell(Tool):
     def execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """Execute app launch using multi-strategy resolution."""
         if not self.validate_args(args):
-            return {"status": "error", "error": "Invalid arguments"}
+            return {
+                "status": "error",
+                "error": "Invalid arguments",
+                "failure_class": "logical"  # Invalid input
+            }
         
         app_name = args["app_name"]
         url = args.get("url")
@@ -186,10 +190,21 @@ class LaunchAppShell(Tool):
         # Execute based on target type
         success, error = self._execute_target(target)
         if not success:
+            # Determine failure class from error
+            # FileNotFoundError → logical (app not found)
+            # OSError with "Access is denied" → permission
+            # Other OSError → environmental (transient OS state)
+            if "Access is denied" in error or "Permission" in error:
+                failure_class = "permission"
+            elif "No valid launch method" in error or "not found" in error.lower():
+                failure_class = "logical"  # App doesn't exist
+            else:
+                failure_class = "environmental"  # Transient OS state
             return {
                 "status": "error",
                 "error": error,
                 "error_type": "environment",
+                "failure_class": failure_class,
                 "launch_method": target.resolution_method.value,
                 "resolution_details": target.details
             }
@@ -366,6 +381,10 @@ class LaunchAppShell(Tool):
             logging.warning(error)
             return False, error
             
+        except PermissionError:
+            error = f"Permission denied launching '{target.value}'"
+            logging.warning(error)
+            return False, error
         except OSError as e:
             if "Access is denied" in str(e):
                 error = f"Permission denied launching '{target.value}'"

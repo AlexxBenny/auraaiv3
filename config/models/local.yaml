@@ -64,3 +64,13 @@ tda:
   provider: ollama
   model: mistral:7b-instruct
   base_url: http://localhost:11434
+
+# ============================================================================
+# Phase 5: Plan Repair (conservative, low temperature)
+# ============================================================================
+
+repair:
+  provider: ollama
+  model: llama3:8b
+  base_url: http://localhost:11434
+ # Conservative for repair reasoning

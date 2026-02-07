@@ -276,6 +276,15 @@ User: "go to google.com and wait for the search box and read the title"
 
 ### Single goals
 
+User: "search nvidia"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "browser", "verb": "search", "params": {"query": "nvidia"}, "scope": "root"}
+    ],
+    "reasoning": "Search query without explicit platform - platform will use default"
+}
+
 User: "open youtube and search nvidia"
 → {
     "meta_type": "single",
