@@ -13,6 +13,16 @@ PARAM VALIDATION (Phase 4.1):
     - required_params: Must be present
     - allowed_values: Constrained enum values (fail-fast if invalid)
     - default_params: Applied if missing
+
+SESSION_BOOTSTRAPS CAPABILITY:
+    When session_bootstraps=True, the verb's tool can create its own execution
+    context without requiring an explicit app.launch. Used by GoalInterpreter
+    to suppress redundant app.launch goals.
+    
+    INVARIANTS:
+    - The downstream verb must not require process-level side effects
+    - The downstream tool must fully own its lifecycle (e.g., BrowserSessionManager)
+    - If a verb needs OS-level process control, set session_bootstraps=False
 """
 
 import logging
@@ -32,6 +42,9 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "action_class": "actuate",
         "description_template": "navigate:{url}",
         "required_params": ["url"],
+        # Session bootstraps via BrowserSessionManager - no app.launch needed
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
         # Allow semantic-only navigate (e.g., "open youtube") which produces semantic context
         "allow_semantic_only": True,
         # Context contracts: consumption (params filled from upstream contexts) and production
@@ -50,6 +63,8 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "action_class": "actuate",
         "description_template": "search:{platform}:{query}",
         "required_params": ["query"],
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
         "default_params": {"platform": "google"},
         "allowed_values": {
             "platform": {"google", "youtube", "bing", "duckduckgo", "github"},
@@ -67,6 +82,8 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "action_class": "actuate",
         "description_template": "wait:{selector}:{state}",
         "required_params": ["selector"],
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
         "default_params": {"state": "visible"},
         "allowed_values": {
             "state": {"attached", "detached", "visible", "hidden"},
@@ -77,18 +94,24 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "action_class": "actuate",
         "description_template": "click:{selector}",
         "required_params": ["selector"],
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
     },
     ("browser", "type"): {
         "intent": "browser_control",
         "action_class": "actuate",
         "description_template": "type:{selector}:{text}",
         "required_params": ["selector", "text"],
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
     },
     ("browser", "read"): {
         "intent": "browser_control",
         "action_class": "observe",
         "description_template": "read:{target}",
         "required_params": ["target"],
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
         "allowed_values": {
             "target": {"title", "url", "text"},  # LOCKED - no free-form
         },
@@ -98,6 +121,8 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "action_class": "actuate",
         "description_template": "scroll:{direction}",
         "required_params": [],
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
         "default_params": {"direction": "down"},
         "allowed_values": {
             "direction": {"up", "down", "left", "right"},
@@ -108,6 +133,8 @@ PLANNER_RULES: Dict[Tuple[str, str], Dict[str, Any]] = {
         "action_class": "actuate",
         "description_template": "select:{selector}:{value}",
         "required_params": ["selector", "value"],
+        "session_bootstraps": True,
+        "provides_substrate": "browser",
     },
     
     # =========================================================================

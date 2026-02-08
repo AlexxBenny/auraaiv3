@@ -209,15 +209,6 @@ Goals describe WHAT, not HOW. Use domain + verb + params.
 
 ### independent_multi (truly independent goals - all scope: "root")
 
-User: "open chrome and open spotify"
-→ {
-    "meta_type": "independent_multi",
-    "goals": [
-        {"domain": "app", "verb": "launch", "params": {"app_name": "chrome"}, "scope": "root"},
-        {"domain": "app", "verb": "launch", "params": {"app_name": "spotify"}, "scope": "root"}
-    ],
-    "reasoning": "Two independent app launches, no ordering needed"
-}
 
 User: "increase volume and take a screenshot"
 → {
@@ -321,13 +312,70 @@ User: "play music"
     "reasoning": "Single media control operation"
 }
 
+### CONTEXTUAL INTENT RESOLUTION (CRITICAL FOR SESSION-BASED OPERATIONS)
+### When user mentions an app followed by operations WITHIN that app's domain,
+### the user's intent is the operation, not app visibility.
+### Only use app.launch when user wants the application window itself.
+
+# User intent is browser operation, not app visibility
+User: "open chrome and go to youtube"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "browser", "verb": "navigate", "params": {"url": "https://youtube.com"}, "scope": "root"}
+    ],
+    "reasoning": "User intent is to visit YouTube. 'Open chrome' is instrumental, not the goal."
+}
+
+# User intent is search, browser is just the medium
+User: "open chrome, go to youtube, search nvidia"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "browser", "verb": "search", "params": {"platform": "youtube", "query": "nvidia"}, "scope": "root"}
+    ],
+    "reasoning": "User intent is to search for nvidia on YouTube. Express terminal goal only."
+}
+
+# User intent is search, not app launch
+User: "open chrome and search for cats"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "browser", "verb": "search", "params": {"query": "cats"}, "scope": "root"}
+    ],
+    "reasoning": "User intent is to search for cats. Browser is just the medium."
+}
+
+# User intent is platform search
+User: "go to github and search pytorch"
+→ {
+    "meta_type": "single",
+    "goals": [
+        {"domain": "browser", "verb": "search", "params": {"platform": "github", "query": "pytorch"}, "scope": "root"}
+    ],
+    "reasoning": "User intent is to find pytorch on GitHub."
+}
+
+# User intent IS app visibility (standalone request)
 User: "open chrome"
 → {
     "meta_type": "single",
     "goals": [
         {"domain": "app", "verb": "launch", "params": {"app_name": "chrome"}, "scope": "root"}
     ],
-    "reasoning": "Single app launch"
+    "reasoning": "User wants the Chrome window visible. No further operation follows."
+}
+
+# Two separate user intents - both want app visibility
+User: "open chrome and open spotify"
+→ {
+    "meta_type": "independent_multi",
+    "goals": [
+        {"domain": "app", "verb": "launch", "params": {"app_name": "chrome"}, "scope": "root"},
+        {"domain": "app", "verb": "launch", "params": {"app_name": "spotify"}, "scope": "root"}
+    ],
+    "reasoning": "User wants both apps visible. Neither has a follow-up operation."
 }
 """
     
@@ -424,7 +472,8 @@ User: "open chrome"
         for idx, g in enumerate(goals_data):
             # Try object field (parametric) then target (legacy)
             target = g.get("object") or g.get("target") or g.get("params", {}).get("name")
-            if target:
+            if target and target not in target_to_idx:
+                # First occurrence wins for target → map to earliest defining goal
                 target_to_idx[target] = idx
         
         logging.debug(f"ScopeResolver: id_map={id_to_idx}, verb_map={verb_to_idx}, target_map={target_to_idx}")
@@ -484,6 +533,136 @@ User: "open chrome"
                 )
         
         return dependencies
+
+    
+    def _suppress_redundant_app_launches(
+        self, 
+        goals_data: List[Dict[str, Any]], 
+        dependencies: Tuple[Tuple[int, Tuple[int, ...]], ...]
+    ) -> List[Dict[str, Any]]:
+        """Suppress app.launch if its substrate is bootstrapped by another goal.
+        
+        SEMANTIC SUPPRESSION RULE (SUBSTRATE-SPECIFIC, ORDER-AGNOSTIC):
+        Suppress app.launch(A) only if:
+        1. There exists a goal G with session_bootstraps=True and provides_substrate=S
+        2. app_name A maps to substrate S (via SubstrateConfig)
+        3. app.launch contributes no unique semantic data
+        
+        IMPORTANT: Dependency direction is IGNORED because LLM may emit goals
+        in inconsistent order. Substrate match is the sole criterion.
+        
+        ASSUMPTION: Suppression assumes app.launch does not contribute semantic
+        data required by other goals. If app.launch carries semantic data
+        (e.g., profile selection), this rule must be revisited.
+        
+        This happens BEFORE MetaGoal finalization, not during execution.
+        Suppressed goals never reach the Planner.
+        
+        Args:
+            goals_data: Raw goal dicts from LLM
+            dependencies: Derived dependencies (unused - order-agnostic)
+            
+        Returns:
+            Filtered goals_data with redundant app.launch removed
+        """
+        from core.planner_rules import PLANNER_RULES
+        from core.substrate_config import SubstrateConfig
+        
+        # Step 1: Find substrates bootstrapped by goals in this block
+        bootstrapped_substrates: set = set()
+        for goal in goals_data:
+            domain = goal.get("domain")
+            verb = goal.get("verb")
+            rule = PLANNER_RULES.get((domain, verb), {})
+            
+            if rule.get("session_bootstraps", False):
+                # Use explicit provides_substrate, or fall back to domain
+                substrate = rule.get("provides_substrate", domain)
+                bootstrapped_substrates.add(substrate)
+                
+                # Guardrail: warn if session_bootstraps but no provides_substrate
+                if "provides_substrate" not in rule:
+                    logging.warning(
+                        f"Planner rule ({domain}, {verb}) bootstraps a session but "
+                        f"does not declare provides_substrate - using domain as fallback"
+                    )
+        
+        if not bootstrapped_substrates:
+            # No self-bootstrapping goals - nothing to suppress
+            return goals_data
+        
+        # Step 2: Suppress app.launch only if its substrate is bootstrapped
+        substrate_config = SubstrateConfig.get()
+        suppressed: set = set()
+        suppressed_app_names: set = set()
+        
+        for idx, goal in enumerate(goals_data):
+            if goal.get("domain") != "app" or goal.get("verb") != "launch":
+                continue
+            
+            app_name = goal.get("params", {}).get("app_name", "")
+            target_substrate = substrate_config.get_substrate(app_name)
+            
+            if target_substrate and target_substrate in bootstrapped_substrates:
+                suppressed.add(idx)
+                suppressed_app_names.add(app_name.lower())
+                logging.info(
+                    f"SEMANTIC_SUPPRESSION: app.launch({app_name}) suppressed - "
+                    f"substrate '{target_substrate}' bootstrapped by another goal"
+                )
+            elif target_substrate is None:
+                # Unknown app - do NOT suppress (safe default)
+                logging.debug(
+                    f"SEMANTIC_SUPPRESSION: app.launch({app_name}) kept - "
+                    f"unknown substrate (not in config)"
+                )
+        
+        if suppressed:
+            logging.info(
+                f"SEMANTIC_SUPPRESSION: Removed {len(suppressed)} redundant "
+                f"app.launch goal(s) (substrate-specific)"
+            )
+        
+        # =====================================================================
+        # Step 3: Clean leaked substrate params from remaining goals
+        # =====================================================================
+        # INVARIANT: Only remove parameters whose value is a direct semantic
+        # reference to a suppressed goal. Do NOT remove params just because
+        # domain matches or substrate matches.
+        #
+        # Example: browser.search(platform="chrome") → delete platform
+        #          Planner will apply default_params: {platform: "google"}
+        # =====================================================================
+        if suppressed_app_names:
+            for goal in goals_data:
+                domain = goal.get("domain")
+                
+                # Check if goal's domain matches any suppressed app's substrate
+                domain_matches_substrate = False
+                for app_name in suppressed_app_names:
+                    substrate = substrate_config.get_substrate(app_name)
+                    if substrate == domain:
+                        domain_matches_substrate = True
+                        break
+                
+                if domain_matches_substrate:
+                    # Clean params that equal suppressed app names
+                    params = goal.get("params", {})
+                    keys_to_delete = []
+                    
+                    for key, value in params.items():
+                        if isinstance(value, str) and value.lower() in suppressed_app_names:
+                            keys_to_delete.append(key)
+                            logging.info(
+                                f"SEMANTIC_CLEANUP: Removed {domain}.{goal.get('verb')}.{key}='{value}' "
+                                f"(leaked from suppressed app.launch)"
+                            )
+                    
+                    for key in keys_to_delete:
+                        del params[key]
+        
+        # Return filtered goals (preserves order)
+        return [g for i, g in enumerate(goals_data) if i not in suppressed]
 
     
     def interpret(
@@ -566,6 +745,40 @@ Return JSON with:
             
             logging.info(f"DEBUG: Derived dependencies: {dependencies}")
             
+            # =================================================================
+            # SEMANTIC SUPPRESSION: Remove redundant app.launch goals
+            # =================================================================
+            # If a goal depends on app.launch AND can self-bootstrap, suppress app.launch.
+            # This happens BEFORE MetaGoal finalization - suppressed goals never reach Planner.
+            goals_data = self._suppress_redundant_app_launches(goals_data, dependencies)
+            
+            # Re-derive dependencies after suppression (indices may have shifted)
+            dependencies = tuple(self._derive_dependencies_from_scope(goals_data))
+            logging.info(f"DEBUG: Dependencies after suppression: {dependencies}")
+            # =================================================================
+            
+            # =================================================================
+            # AUTO-CORRECT meta_type BASED ON STRUCTURAL FACTS
+            # =================================================================
+            # LLM may output inconsistent meta_type (e.g., "single" with 2 goals).
+            # Derived dependencies are authoritative. Correct meta_type accordingly.
+            # This is structural normalization, NOT semantic rewriting.
+            goal_count = len(goals_data)
+            
+            if goal_count == 1:
+                # Single goal - force single regardless of what LLM said
+                meta_type = "single"
+                dependencies = ()  # Single cannot have deps
+            elif dependencies:
+                # Multiple goals WITH dependencies → dependent_multi
+                meta_type = "dependent_multi"
+            else:
+                # Multiple goals, NO dependencies → independent_multi
+                meta_type = "independent_multi"
+            
+            logging.info(f"DEBUG: Auto-corrected meta_type: {meta_type}")
+            # =================================================================
+            
             # Build Goal objects with unique IDs and scope (PARAMETRIC SCHEMA)
             goals = tuple(
                 Goal(
@@ -592,7 +805,8 @@ Return JSON with:
             # Handle edge case: no goals extracted
             if not goals:
                 logging.warning(f"GoalInterpreter: No goals extracted from '{user_input}'")
-                goals = (Goal(domain="app", verb="launch", params={"app_name": user_input}),)
+                # Fallback to safe browser.search
+                goals = (Goal(domain="browser", verb="search", params={"query": user_input}),)
                 meta_type = "single"
                 dependencies = ()
             
@@ -611,11 +825,15 @@ Return JSON with:
             return meta_goal
             
         except Exception as e:
-            logging.error(f"GoalInterpreter failed: {e}, returning passthrough")
-            # Passthrough: treat as single goal (PARAMETRIC)
+            # =================================================================
+            # FIX C: SAFE PASSTHROUGH FALLBACK
+            # =================================================================
+            # Never create app.launch(entire_input) - that's always wrong.
+            # browser.search is universally safe: informational, no side effects.
+            logging.error(f"GoalInterpreter failed: {e}, returning safe search fallback")
             return MetaGoal(
                 meta_type="single",
-                goals=(Goal(domain="app", verb="launch", params={"app_name": user_input}),),
+                goals=(Goal(domain="browser", verb="search", params={"query": user_input}),),
                 dependencies=()
             )
     

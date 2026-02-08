@@ -137,6 +137,42 @@ class GoalOrchestrator:
         """Check if a failure is potentially recoverable via plan repair."""
         return failure_class in {"environmental", "unknown"}
     
+    # Browser apps that should trigger the warning
+    _BROWSER_APP_NAMES = frozenset({"chrome", "firefox", "edge", "brave", "opera", "chromium", "safari"})
+    
+    def _warn_if_browser_launch_with_browser_goals(self, meta_goal: MetaGoal) -> None:
+        """Log a warning if app.launch(browser) appears alongside browser domain goals.
+        
+        This pattern indicates the interpreter should have collapsed the request
+        into browser domain goals only, since BrowserSessionManager handles session
+        bootstrapping automatically.
+        
+        This is a DIAGNOSTIC ONLY - does not modify execution.
+        """
+        if len(meta_goal.goals) < 2:
+            return
+        
+        has_browser_app_launch = False
+        has_browser_goal = False
+        browser_app_name = None
+        
+        for goal in meta_goal.goals:
+            if goal.domain == "app" and goal.verb == "launch":
+                app_name = (goal.params or {}).get("app_name", "").lower()
+                if app_name in self._BROWSER_APP_NAMES:
+                    has_browser_app_launch = True
+                    browser_app_name = app_name
+            elif goal.domain == "browser":
+                has_browser_goal = True
+        
+        if has_browser_app_launch and has_browser_goal:
+            logging.warning(
+                f"INTERPRETER_EXAMPLE_GAP: app.launch({browser_app_name}) emitted alongside "
+                f"browser domain goals. This likely indicates an interpreter example gap. "
+                f"Expected: browser goals only (session bootstraps automatically). "
+                f"MetaGoal type: {meta_goal.meta_type}"
+            )
+    
     def _validate_repair_equivalence(
         self, 
         original: MetaGoal, 
@@ -616,6 +652,10 @@ class GoalOrchestrator:
             goals=tuple(resolved_goals),
             dependencies=meta_goal.dependencies
         )
+        
+        # DIAGNOSTIC: Detect app.launch(browser) followed by browser goals
+        # This pattern suggests an interpreter example gap
+        self._warn_if_browser_launch_with_browser_goals(meta_goal)
         
         # STEP 1: Resolve all file_operation paths BEFORE planning
         # This is the SINGLE AUTHORITY for path resolution

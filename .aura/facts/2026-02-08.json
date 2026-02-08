@@ -1,0 +1,21 @@
+{
+  "date": "2026-02-08",
+  "schema_version": 1,
+  "count": 1,
+  "facts": [
+    {
+      "fact_id": "a2aa3278-6368-48f7-b81a-ef6bf0099550",
+      "timestamp": "2026-02-08T08:20:52.256301",
+      "tool": "system.apps.launch.shell",
+      "query": "open notepad",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

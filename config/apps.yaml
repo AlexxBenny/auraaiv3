@@ -53,3 +53,37 @@ browsers:
 # office:
 #   word:
 #     default_args: []
+
+# =============================================================================
+# SUBSTRATE MAPPING
+# =============================================================================
+# Maps app names to execution substrates.
+# Used by GoalInterpreter to suppress redundant app.launch when a
+# session-bootstrapping goal already provides the substrate.
+# 
+# Example: "open chrome and go to youtube"
+#   - browser.navigate provides substrate "browser"
+#   - app.launch(chrome) targets substrate "browser"
+#   - Suppression: app.launch(chrome) is redundant
+#
+# To add new apps: just add to the appropriate list below.
+# No code changes required.
+
+substrates:
+  browser:
+    - chrome
+    - chromium
+    - firefox
+    - edge
+    - brave
+    - opera
+  editor:
+    - vscode
+    - code
+    - notepad++
+    - sublime
+  terminal:
+    - cmd
+    - powershell
+    - bash
+    - terminal
