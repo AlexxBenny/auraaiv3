@@ -36,18 +36,27 @@ class BrowserSession:
     headless: bool = False
     
     def is_active(self) -> bool:
-        """Check if session is still usable."""
-        if self.page is None:
-            return False
+        """Check if session is still usable.
+        
+        INVARIANT: If this returns True, the session is fully executable.
+        All three must be alive: browser, context, page.
+        """
         try:
-            # Check if page is closed
-            if self.page.is_closed():
+            # Browser process must be alive and connected
+            if not self.browser or not self.browser.is_connected():
                 return False
-            # For persistent contexts, also verify context is still alive
-            # by attempting to access it (will throw if closed)
-            if self.context:
-                # Try to access context - will throw if closed
-                _ = self.context.pages
+            
+            # Context must exist
+            if not self.context:
+                return False
+            
+            # Page must exist and not be closed
+            if not self.page or self.page.is_closed():
+                return False
+            
+            # Sanity check: accessing context.pages should not throw
+            _ = self.context.pages
+            
             return True
         except Exception:
             return False
@@ -125,8 +134,15 @@ class BrowserSessionManager:
                 logging.info(f"Reusing existing session: {session_id}")
                 return existing
             else:
-                # Phase 2.1: Check if context is still alive - recover page instead of recreating
-                if existing.context:
+                # Phase 2.1: Attempt recovery only if browser is still connected
+                # INVARIANT: Recovery is only possible if browser process is alive
+                can_recover = (
+                    existing.browser and 
+                    existing.browser.is_connected() and 
+                    existing.context
+                )
+                
+                if can_recover:
                     try:
                         # Context is the authority, page is ephemeral
                         new_page = existing.context.new_page()
@@ -135,6 +151,11 @@ class BrowserSessionManager:
                         return existing
                     except Exception as e:
                         logging.info(f"Context also closed for session {session_id}: {e}")
+                else:
+                    logging.info(
+                        f"Session {session_id} not recoverable: "
+                        f"browser_connected={existing.browser and existing.browser.is_connected()}"
+                    )
                 
                 logging.info(f"Session {session_id} is stale, recreating")
                 self._cleanup_session(session_id)
