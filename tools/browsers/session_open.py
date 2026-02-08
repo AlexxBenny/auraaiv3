@@ -57,6 +57,11 @@ class SessionOpen(Tool):
         return True
     
     @property
+    def requires_session(self) -> bool:
+        """Opening/attaching to sessions is itself session-related."""
+        return True
+    
+    @property
     def schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
@@ -88,10 +93,14 @@ class SessionOpen(Tool):
             from core.browser_session_manager import BrowserSessionManager
             
             manager = BrowserSessionManager.get()
-            session = manager.get_or_create(
-                session_id=session_id,
-                browser_type=browser_type
-            )
+            # If a specific session_id was requested, prefer attaching to it
+            if session_id:
+                session = manager.get_session(session_id)
+                if session is None:
+                    # fall through to create a new one with explicit id semantics
+                    session = manager.get_or_create(session_id=session_id, browser_type=browser_type)
+            else:
+                session = manager.get_or_create(session_id=session_id, browser_type=browser_type)
             
             # Navigate if URL provided
             if url:

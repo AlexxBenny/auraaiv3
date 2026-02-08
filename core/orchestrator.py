@@ -62,7 +62,9 @@ class Orchestrator:
         self.goal_orchestrator = GoalOrchestrator()
         
         # Execution components
-        self.executor = ToolExecutor()
+        # Note: ToolExecutor is plan-scoped. Do NOT reuse a single executor instance across plans.
+        # Keep a convenience field for legacy code, but prefer creating per-plan executors.
+        self.executor = None
         self.tool_resolver = ToolResolver()
         self.context = SessionContext()
         
@@ -139,8 +141,11 @@ class Orchestrator:
             "direct": Single pipeline, LLM exits (obvious simple case)
             "orchestrated": Coordinator takes over (everything else)
         """
+        SEMANTIC_INTENTS = {"browser_control", "file_operation"}
         # SAFETY: Certain intents always need orchestration (composite actions)
         if intent and self._requires_orchestration(intent):
+            return "orchestrated"
+        if intent in SEMANTIC_INTENTS:
             return "orchestrated"
         
         # Only skip coordinator when EXTREMELY safe
@@ -361,6 +366,63 @@ class Orchestrator:
             # Phase 5: Track goal execution status
             goal_action_status = {}  # goal_idx → list of (action_id, success)
             
+            # Create a plan-scoped executor to hold execution-scoped state (session_id, etc.)
+            from execution.executor import ToolExecutor
+            from core.tool_resolver import ToolResolver
+            from tools.registry import get_registry
+            from core.browser_session_manager import BrowserSessionManager
+
+            executor = ToolExecutor()
+
+            # Pre-scan resolved tools for the plan to determine if any action requires a session.
+            # This improves auditability by acquiring the session once at plan start.
+            try:
+                resolver = self.tool_resolver
+                registry = get_registry()
+                plan_requires_session = False
+                explicit_session_id = None
+                import inspect
+                resolve_sig = inspect.signature(resolver.resolve)
+                # Cache resolutions to avoid duplicate LLM calls and ensure determinism
+                resolution_cache = {}
+                for node_id, node in plan_graph.nodes.items():
+                    if "action_args" in resolve_sig.parameters:
+                        resolution = resolver.resolve(
+                            description=node.description,
+                            intent=node.intent,
+                            context=context,
+                            action_class=node.action_class,
+                            action_args=getattr(node, "args", {}) or {}
+                        )
+                    else:
+                        resolution = resolver.resolve(
+                            description=node.description,
+                            intent=node.intent,
+                            context=context,
+                            action_class=node.action_class
+                        )
+                    resolution_cache[node_id] = resolution
+                    tool_name = resolution.get("tool")
+                    # Planner-explicit session id (planner sets _planned_session_id in action.args if needed)
+                    explicit_session_id = getattr(node, "args", {}) and node.args.get("_planned_session_id")
+                    if tool_name:
+                        tool_instance = registry.get(tool_name)
+                        if tool_instance and getattr(tool_instance, "requires_session", False):
+                            plan_requires_session = True
+                            break
+
+                if plan_requires_session:
+                    manager = BrowserSessionManager.get()
+                    if explicit_session_id:
+                        session = manager.get_session(explicit_session_id) or manager.get_or_create(session_id=explicit_session_id)
+                    else:
+                        session = manager.get_or_create()
+                    if session:
+                        executor.set_current_session_id(session.session_id)
+                        logging.info(f"Plan acquired session: {session.session_id} (plan-scoped)")
+            except Exception:
+                logging.debug("Plan-level session pre-scan failed; falling back to lazy acquisition", exc_info=True)
+
             for action_id in plan_graph.execution_order:
                 action = plan_graph.nodes[action_id]
                 logging.info(f"DEBUG ORCH: action_id={action_id}, action.action_class={action.action_class}")
@@ -374,8 +436,10 @@ class Orchestrator:
                 
                 try:
                     # Execute via resolver - Phase 3 abstract action → concrete tool
+                    # Use cached resolution when available
+                    cached_resolution = resolution_cache.get(action_id)
                     tool_result = self.goal_orchestrator._resolve_and_execute(
-                        action, context
+                        action, context, executor=executor, resolver=self.tool_resolver, resolution=cached_resolution
                     )
                     
                     if tool_result.get("status") == "success":
@@ -504,7 +568,7 @@ class Orchestrator:
                                 break
                         
                         try:
-                            tool_result = self.goal_orchestrator._resolve_and_execute(action, context)
+                            tool_result = self.goal_orchestrator._resolve_and_execute(action, context, executor=executor, resolver=self.tool_resolver)
                             if tool_result.get("status") == "success":
                                 repaired_success_count += 1
                                 if repaired_goal_idx is not None:
@@ -652,12 +716,15 @@ class Orchestrator:
             logging.error("INVARIANT VIOLATION: _handle_action called without intent")
             intent = "unknown"
         
+        # Use a plan-scoped executor for this single action execution
+        from execution.executor import ToolExecutor
+        plan_executor = ToolExecutor()
         result = handle_action(
             user_input=user_input,
             intent=intent,
             context=context,
             tool_resolver=self.tool_resolver,
-            executor=self.executor,
+            executor=plan_executor,
             progress=progress  # Pass progress to pipeline
         )
         
@@ -672,10 +739,12 @@ class Orchestrator:
         """Handle low-confidence or unknown intents."""
         progress = kwargs.get("progress", NULL_EMITTER)
         progress.emit("Thinking about how to help...")
+        from execution.executor import ToolExecutor
+        plan_executor = ToolExecutor()
         return handle_fallback(
             user_input=user_input,
             context=context,
-            executor=self.executor
+            executor=plan_executor
         )
     
     def _get_context(self) -> Dict[str, Any]:

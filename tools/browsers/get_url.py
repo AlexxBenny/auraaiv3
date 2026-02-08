@@ -59,6 +59,11 @@ class GetUrl(Tool):
         return False
     
     @property
+    def requires_session(self) -> bool:
+        """URL retrieval requires an active session/page."""
+        return True
+    
+    @property
     def schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

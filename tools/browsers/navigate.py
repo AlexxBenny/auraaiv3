@@ -49,8 +49,18 @@ class Navigate(Tool):
     
     @property
     def requires_unlocked_screen(self) -> bool:
-        return True
+        return False
     
+    @property
+    def requires_session(self) -> bool:
+        """Navigate operates on a session-backed browser/page."""
+        return True
+
+    @property
+    def required_semantic_inputs(self) -> set:
+        """Navigate requires a planner-provided URL."""
+        return {"url"}
+
     @property
     def schema(self) -> Dict[str, Any]:
         return {
@@ -86,8 +96,18 @@ class Navigate(Tool):
             manager = BrowserSessionManager.get()
             config = BrowserConfig.get().settings
             
-            # Get or create session
-            session = manager.get_or_create(session_id=session_id)
+            # Prefer provided session_id (do NOT recreate); otherwise create default
+            if session_id:
+                session = manager.get_session(session_id)
+            else:
+                session = manager.get_or_create()
+            if not session or not session.is_active():
+                return {
+                    "status": "error",
+                    "error": "No active browser session",
+                    "failure_class": "logical",
+                    "content": ""
+                }
             
             # Navigate using engine
             from tools.browsers._engine.playwright import PlaywrightEngine

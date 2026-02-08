@@ -86,6 +86,24 @@ class Tool(ABC):
         Override in subclasses. Default is "actuate" for backwards compatibility.
         """
         return "actuate"
+
+    @property
+    def requires_session(self) -> bool:
+        """Indicates this tool requires an execution-scoped session (e.g., browser, UI automation).
+
+        Tools that depend on a long-lived session (browser, remote desktop, mobile simulator, etc.)
+        MUST override this to return True. This is treated as capability metadata (not browser-only).
+        """
+        return False
+
+    @property
+    def required_semantic_inputs(self) -> set:
+        """Semantic inputs that must be provided by the planner (e.g., {'url', 'path'}).
+
+        Tools that require planner-provided semantic fields should override this and list
+        the required keys. The ToolResolver will never emit or populate these fields.
+        """
+        return set()
     
     @property
     def failure_class(self) -> str:

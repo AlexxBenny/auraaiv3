@@ -59,6 +59,11 @@ class GetTitle(Tool):
         return False
     
     @property
+    def requires_session(self) -> bool:
+        """Reads require an active session to query page state."""
+        return True
+    
+    @property
     def schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

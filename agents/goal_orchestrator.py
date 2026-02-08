@@ -11,7 +11,7 @@ INVARIANTS:
 - Dependencies become edges in plan graph
 - Execution order is topologically valid
 - Partial success returns what succeeded
-- WorldState never mutated
+- WorldState is per-request and may be mutate
 - All file_operation paths resolved BEFORE planning (single authority)
 
 Phase 1 Scope: single + independent_multi only
@@ -377,7 +377,10 @@ class GoalOrchestrator:
     def _resolve_and_execute(
         self,
         action: PlannedAction,
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        executor=None,
+        resolver: Optional["ToolResolver"] = None,
+        resolution: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Resolve abstract PlannedAction → concrete tool → execute.
         
@@ -393,46 +396,68 @@ class GoalOrchestrator:
         """
         from core.tool_resolver import ToolResolver
         from core.context_snapshot import ContextSnapshot
-        from execution.executor import ToolExecutor
-        
-        resolver = ToolResolver()
-        executor = ToolExecutor()
+
+        # Use injected resolver when provided to avoid duplicated LLM calls/state.
+        if resolver is None:
+            from core.tool_resolver import ToolResolver
+        # Use injected resolver when provided to avoid duplicated LLM calls/state.
+        if resolver is None:
+            from core.tool_resolver import ToolResolver
+            resolver = ToolResolver()
+        # Do NOT create a fallback executor here. Creation (if allowed) happens after
+        # resolution and tool inspection to avoid accidentally creating sessions/tools
+        # for semantic tools that require an orchestrator-provided session.
         
         # Build structured context snapshot
         context_snapshot = ContextSnapshot.build(context)
         
-        resolution = resolver.resolve(
-            description=action.description,
-            intent=action.intent,
-            context=context,
-            action_class=action.action_class  # Phase 2: semantic filter
-        )
+        import inspect
+        resolve_sig = inspect.signature(resolver.resolve)
+        # Allow caller to provide a cached resolution to avoid re-invoking the LLM.
+        if resolution is None:
+            if "action_args" in resolve_sig.parameters:
+                resolution = resolver.resolve(
+                    description=action.description,
+                    intent=action.intent,
+                    context=context,
+                    action_class=action.action_class,  # Phase 2: semantic filter
+                    action_args=getattr(action, "args", {}) or {}
+                )
+            else:
+                resolution = resolver.resolve(
+                    description=action.description,
+                    intent=action.intent,
+                    context=context,
+                    action_class=action.action_class  # Phase 2: semantic filter
+                )
         logging.info(f"DEBUG: _resolve_and_execute: action_class={action.action_class}")
         
         tool_name = resolution.get("tool")
-        params = resolution.get("params", {})
+        resolved_params = resolution.get("params", {}) or {}
+        # Snapshot for immutability check (shallow)
+        original_params_snapshot = dict(resolved_params)
+        # call_params is the execution-copy we will mutate/inject into
+        call_params = dict(resolved_params)
         
-        # For file_operation: inject path from action.args (not LLM output)
-        # This keeps Windows paths out of JSON entirely
-        if action.intent == "file_operation" and "path" in action.args:
-            params["path"] = action.args["path"]
+        # Overlay planner-authoritative semantic inputs into execution-only call_params.
+        # Use a declarative map to avoid ad-hoc branching per intent.
+        SEMANTIC_OVERLAY_KEYS = {
+            "browser_control": {
+                "url": "url",
+                "selector": "selector",
+                "state": "state",
+                "app_name": "browser",  # planner uses 'browser', execution expects 'app_name'
+            },
+            "file_operation": {
+                "path": "path"
+            }
+        }
 
-        if action.intent == "browser_control" and "url" in action.args:
-            params["url"] = action.args["url"]
-            logging.info(f"DEBUG: Injected browser URL: {action.args['url']}")
-            if "browser" in action.args:
-                params["app_name"] = action.args["browser"]
-                logging.info(f"DEBUG: Injected browser name: {action.args['browser']}")
-        
-        # PHASE 4: Inject browser selector params from planner (bypass LLM hallucination)
-        # LLM was adding "." prefix to selectors - this ensures planner args are authoritative
-        if action.intent == "browser_control":
-            if "selector" in action.args:
-                params["selector"] = action.args["selector"]
-                logging.info(f"DEBUG: Injected selector from planner: {action.args['selector']}")
-            if "state" in action.args:
-                params["state"] = action.args["state"]
-                logging.info(f"DEBUG: Injected state from planner: {action.args['state']}")
+        overlay_map = SEMANTIC_OVERLAY_KEYS.get(action.intent, {})
+        for semantic_key, planner_key in overlay_map.items():
+            if planner_key in (action.args or {}):
+                call_params[semantic_key] = action.args[planner_key]
+                logging.info(f"DEBUG: Planner override - call_params.{semantic_key} set to: {action.args[planner_key]}")
         
         if not tool_name:
             logging.warning(
@@ -448,8 +473,64 @@ class GoalOrchestrator:
         logging.info(
             f"GoalOrchestrator: resolved {action.description} → {tool_name}"
         )
+        # Ensure plan-scoped session acquisition based on tool capability (requires_session)
+        try:
+            from tools.registry import get_registry
+            from core.browser_session_manager import BrowserSessionManager
+            registry = get_registry()
+            tool_instance = registry.get(tool_name)
+            if tool_instance and getattr(tool_instance, "requires_session", False):
+                manager = BrowserSessionManager.get()
+                # Planner-explicit session id (planner sets _planned_session_id in action.args if needed)
+                explicit_sid = (action.args or {}).get("_planned_session_id")
+                session = None
+                if explicit_sid:
+                    # Planner explicitly requested a specific session: try attach, otherwise create
+                    session = manager.get_session(explicit_sid)
+                    if session is None:
+                        session = manager.get_or_create(session_id=explicit_sid)
+                        logging.info(f"Created session for explicit planner request: session_id={session.session_id}")
+                    else:
+                        logging.info(f"Attaching to explicit planner session_id={session.session_id}")
+                else:
+                    # Prefer attaching to an existing plan-scoped session if present.
+                    current_sid = getattr(executor, "current_session_id", None)
+                    if current_sid:
+                        session = manager.get_session(current_sid)
+                        if session:
+                            logging.info(f"Attaching to existing session_id={session.session_id}")
+                        else:
+                            # Do not create here; rely on orchestrator pre-scan to have created session.
+                            logging.debug(f"Executor had session_id={current_sid} but manager returned no session; skipping create")
+                    else:
+                        # No executor session_id present; do NOT create here — orchestrator should have acquired session at plan start.
+                        if executor is None:
+                            raise RuntimeError("Executor missing and no plan-scoped session available; orchestrator must provide session.")
+                        session = None
+                # Bind primitive session id to executor (plan-scoped) if we obtained one
+                if session:
+                    try:
+                        executor.set_current_session_id(session.session_id)
+                    except Exception:
+                        executor.current_session_id = session.session_id
+        except Exception:
+            # Defensive: do not break execution if session wiring encounters issues
+            logging.debug("Session acquisition/injection failed in resolve_and_execute", exc_info=True)
+        # Ensure executor exists for non-session tools; do not auto-create when session is required.
+        if executor is None:
+            from execution.executor import ToolExecutor
+            executor = ToolExecutor()
+
+        # Execute using the execution-only copy
+        result = executor.execute_tool(tool_name, call_params)
         
-        result = executor.execute_tool(tool_name, params)
+        # Debug-mode immutability assertion: ensure resolver params were not mutated
+        try:
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                assert resolved_params == original_params_snapshot, "Resolved params mutated during execution"
+        except AssertionError:
+            logging.exception("Resolved params mutated - failing loudly per debug assertion")
+            raise
         
         # Phase 5: Propagate failure_class from tool result
         # If tool didn't provide it, fall back to tool's default property

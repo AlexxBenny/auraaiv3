@@ -183,7 +183,8 @@ class ToolResolver:
     
     def resolve(self, description: str, intent: str, 
                 context: Dict[str, Any],
-                action_class: str = None) -> Dict[str, Any]:
+                action_class: str = None,
+                action_args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Two-stage resolution: preferred domains → global fallback.
         
         Args:
@@ -252,7 +253,7 @@ class ToolResolver:
         
         if preferred_tools:
             stage1_result = self._resolve_with_tools(
-                description, intent, context, preferred_tools, stage=1
+                description, intent, context, preferred_tools, stage=1, action_args=action_args
             )
             
             # Check if Stage 1 succeeded with sufficient confidence
@@ -372,7 +373,7 @@ class ToolResolver:
                 }
         
         stage2_result = self._resolve_with_tools(
-            description, intent, context, all_tools, stage=2
+            description, intent, context, all_tools, stage=2, action_args=action_args
         )
         
         # Apply domain mismatch penalty
@@ -417,7 +418,8 @@ class ToolResolver:
     
     def _resolve_with_tools(self, description: str, intent: str, 
                             context: Dict[str, Any], tools: List[Dict[str, Any]],
-                            stage: int) -> Dict[str, Any]:
+                            stage: int,
+                            action_args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Core resolution logic with given tool set."""
         # Build tool descriptions
         tools_desc = "\n".join([
@@ -434,7 +436,15 @@ class ToolResolver:
         
         stage_hint = f" (Stage {stage}: {'preferred domains' if stage == 1 else 'global search'})"
         
-        prompt = f"""Match this request to a tool and provide parameters.{stage_hint}
+        # If planner already provided semantic args, hint the LLM to not invent semantics.
+        semantic_hint = ""
+        if action_args:
+            SEMANTIC_FIELDS = {"url", "query", "platform", "resolved_path"}
+            present = SEMANTIC_FIELDS.intersection(action_args.keys())
+            if present:
+                semantic_hint = f"NOTE: Planner already provided semantic parameters: {sorted(list(present))}. DO NOT generate or modify these fields; only select a tool and provide non-semantic params.\n\n"
+
+        prompt = f"""{semantic_hint}Match this request to a tool and provide parameters.{stage_hint}
 
 Request: "{description}"
 Intent: {intent}
@@ -473,6 +483,17 @@ Return JSON with tool, params, confidence, and reason.
             result = self.model.generate(prompt, schema=schema)
             
             tool_name = result.get("tool")
+            # DIAGNOSTIC: log registry lookup for tooling authority checks
+            try:
+                tool_obj = self.registry.get(tool_name) if tool_name else None
+                logging.error(
+                    "DIAG: tool_name=%s, registry_obj=%r, has_required=%s",
+                    tool_name,
+                    tool_obj,
+                    hasattr(tool_obj, "required_semantic_inputs") if tool_obj is not None else False
+                )
+            except Exception as _:
+                logging.exception("DIAG: registry lookup failed for tool_name=%r", tool_name)
             
             # Validate tool exists
             if tool_name and not self.registry.has(tool_name):
@@ -497,10 +518,38 @@ Return JSON with tool, params, confidence, and reason.
             logging.info(f"=== ToolResolver OUTPUT ===")
             logging.info(f"  tool: {result.get('tool')}")
             logging.info(f"  params: {result.get('params')}")
-            if 'selector' in result.get('params', {}):
-                logging.info(f"  params.selector: '{result['params']['selector']}'")
-                logging.info(f"  params.selector repr: {repr(result['params']['selector'])}")
-            
+
+            # Enforce invariant: resolver must NOT emit semantic fields (url, query, platform, resolved_path)
+            SEMANTIC_FIELDS = {"url", "query", "platform", "resolved_path"}
+            params = result.get("params", {}) or {}
+            semantic_present = SEMANTIC_FIELDS.intersection(params.keys())
+            if semantic_present:
+                # Immediately sanitize the result to prevent semantic leakage from the LLM.
+                result["params"] = {}
+                logging.warning(
+                    f"ToolResolver: LLM emitted semantic params {semantic_present} for tool '{result.get('tool')}'. "
+                    "Sanitizing params to {} to preserve planner authority."
+                )
+
+            # If the chosen tool declares required_semantic_inputs, never return params for those tools.
+            tool_name = result.get("tool")
+            if tool_name and self.registry.has(tool_name):
+                tool_instance = None
+                try:
+                    tool_instance = self.registry.get(tool_name)
+                except Exception:
+                    tool_instance = None
+                if tool_instance:
+                    required = getattr(tool_instance, "required_semantic_inputs", set()) or set()
+                    if required:
+                        # Defensive: ensure LLM did not emit any of these keys (we asserted above).
+                        # Enforce tool-only resolution: return empty params for semantic tools.
+                        result["params"] = {}
+
+            if 'selector' in params:
+                logging.info(f"  params.selector: '{params['selector']}'")
+                logging.info(f"  params.selector repr: {repr(params['selector'])}")
+
             return result
             
         except Exception as e:

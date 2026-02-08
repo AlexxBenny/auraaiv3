@@ -16,7 +16,7 @@ def test_planner_rules_integrity():
     allowed_top_fields = {
         "intent", "action_class", "description_template", "required_params",
         "default_params", "allowed_values", "context_consumption",
-        "context_production", "allow_semantic_only"
+        "context_production", "allow_semantic_only", "session_bootstraps", "provides_substrate"
     }
 
     for key, rule in rules.items():

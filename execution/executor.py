@@ -33,6 +33,9 @@ class ToolExecutor:
         # Phase 2B' Safety: Executor cooldown (e.g., after explorer restart)
         self.cooldown_until: float = 0.0
         
+        # Execution-scoped session id (primitive only) - must be set per-plan
+        self.current_session_id: Optional[str] = None
+        
         logging.info("ToolExecutor initialized with Phase 2B' safety features")
     
     def execute_plan(self, plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -53,6 +56,9 @@ class ToolExecutor:
         Raises:
             RuntimeError: If no steps are present
         """
+        # DEPRECATED: execute_plan is legacy entrypoint kept for backward compatibility.
+        # New code should use execute_step/execute_tool for per-action execution to ensure
+        # runtime injection and precondition guarantees are applied consistently.
         steps = plan.get("steps", [])
         
         # =========================================================================
@@ -100,23 +106,20 @@ class ToolExecutor:
                 })
                 continue
             
-            # Execute tool
+            # Execute tool via execute_step to ensure preconditions, injection, and key-release guarantees
             try:
-                result = tool.execute(args)
+                result = self.execute_step(tool_name, args)
                 results.append({
                     "step": i + 1,
                     "tool": tool_name,
                     "result": result
                 })
-                
-                # If tool failed, record error
                 if result.get("status") != "success":
                     errors.append({
                         "step": i + 1,
                         "tool": tool_name,
                         "error": result.get("error", "Tool execution failed")
                     })
-                    
             except Exception as e:
                 error_msg = f"Tool execution error: {str(e)}"
                 logging.error(error_msg)
@@ -171,7 +174,20 @@ class ToolExecutor:
                 "error": f"Tool '{tool_name}' not found"
             }
         
-        if not tool.validate_args(args):
+        # Work on a shallow copy of args to preserve immutability of caller-provided dicts.
+        local_args = dict(args) if isinstance(args, dict) else args
+
+        # If executor holds a plan-scoped session_id, inject it into local_args when absent.
+        try:
+            if self.current_session_id and isinstance(local_args, dict) and "session_id" not in local_args:
+                # inject primitive session id only (no raw objects)
+                local_args["session_id"] = self.current_session_id
+                logging.debug(f"Executor injecting session_id={self.current_session_id} into local args for tool {tool_name}")
+        except Exception:
+            # defensive: do not fail execution on injector issues
+            logging.debug("Failed to inject session_id into args")
+
+        if not tool.validate_args(local_args):
             return {
                 "status": "error",
                 "error": f"Invalid arguments for tool '{tool_name}'"
@@ -196,7 +212,7 @@ class ToolExecutor:
         # PHASE 2B' SAFETY: EXECUTE WITH KEY RELEASE GUARANTEE
         # =====================================================================
         try:
-            result = tool.execute(args)
+            result = tool.execute(local_args)
             
             # Handle cooldown requests from tools (e.g., explorer restart)
             if result.get("cooldown_ms"):
@@ -264,6 +280,18 @@ class ToolExecutor:
         """
         self.cooldown_until = time.time() + (duration_ms / 1000.0)
         logging.info(f"Executor cooldown set for {duration_ms}ms")
+
+    # =========================================================================
+    # Session helpers (plan-scoped)
+    # =========================================================================
+    def set_current_session_id(self, session_id: Optional[str]) -> None:
+        """Set or clear the plan-scoped session_id (primitive only)."""
+        self.current_session_id = session_id
+        logging.debug(f"Executor: set_current_session_id -> {session_id}")
+
+    def get_current_session_id(self) -> Optional[str]:
+        """Return current plan-scoped session_id, if any."""
+        return self.current_session_id
     
     def register_key_press(self, key: str) -> None:
         """Register a modifier key as pressed (for tracking).

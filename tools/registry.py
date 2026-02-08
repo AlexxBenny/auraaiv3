@@ -20,7 +20,22 @@ class ToolRegistry:
         
         if tool.name in self._tools:
             raise ValueError(f"Tool '{tool.name}' is already registered")
-        
+        # Enforce explicit declaration for session-requiring tools.
+        # If a tool has side_effects that indicate a session-backed dependency
+        # (e.g., launching processes, changing focus, remote sessions), it MUST
+        # declare `requires_session = True` to avoid implicit assumptions.
+        session_indicating = {"launches_process", "launches_browser", "changes_focus", "remote_session"}
+        if any(se in session_indicating for se in getattr(tool, "side_effects", []) or []):
+            if not getattr(tool, "requires_session", False):
+                # Warning only: side_effects is not a complete signal for session requirements.
+                # Developers MUST explicitly declare `requires_session = True` on tools that
+                # depend on execution-scoped sessions. For now, warn to avoid hard failures.
+                import logging
+                logging.warning(
+                    f"Tool '{tool.name}' has session-indicating side_effects {tool.side_effects} "
+                    f"but does not declare requires_session=True. Recommend declaring explicitly."
+                )
+
         self._tools[tool.name] = tool
     
     def get(self, tool_name: str) -> Optional[Tool]:

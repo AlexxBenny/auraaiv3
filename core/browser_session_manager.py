@@ -42,21 +42,27 @@ class BrowserSession:
         All three must be alive: browser, context, page.
         """
         try:
-            # Browser process must be alive and connected
-            if not self.browser or not self.browser.is_connected():
-                return False
-            
+            # If a browser handle exists, ensure it's connected.
+            # Note: persistent-profile launches may return (None, context, page),
+            # so lack of a browser handle alone does NOT imply an inactive session.
+            if self.browser:
+                try:
+                    if not self.browser.is_connected():
+                        return False
+                except Exception:
+                    return False
+
             # Context must exist
             if not self.context:
                 return False
-            
+
             # Page must exist and not be closed
             if not self.page or self.page.is_closed():
                 return False
-            
+
             # Sanity check: accessing context.pages should not throw
             _ = self.context.pages
-            
+
             return True
         except Exception:
             return False
@@ -220,9 +226,12 @@ class BrowserSessionManager:
     def get_session(self, session_id: str) -> Optional[BrowserSession]:
         """Get specific session by ID (None if not found/inactive)."""
         session = self._sessions.get(session_id)
-        if session and session.is_active():
-            return session
-        return None
+        if session:
+            if session.is_active():
+                return session
+            else:
+                self._sessions.pop(session_id, None)
+                return None
     
     def close_session(self, session_id: str) -> bool:
         """Close and untrack a session."""

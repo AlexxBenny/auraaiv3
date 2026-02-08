@@ -65,6 +65,11 @@ class WaitFor(Tool):
     @property
     def requires_unlocked_screen(self) -> bool:
         return True
+
+    @property
+    def requires_session(self) -> bool:
+        """Waiting for page elements requires an active session/page."""
+        return True
     
     @property
     def schema(self) -> Dict[str, Any]:
@@ -128,7 +133,12 @@ class WaitFor(Tool):
             from core.browser_session_manager import BrowserSessionManager
             
             manager = BrowserSessionManager.get()
-            session = manager.get_or_create(session_id=session_id)
+            if session_id:
+                session = manager.get_session(session_id)
+            else:
+                session = manager.get_or_create()
+            if not session or not session.is_active():
+                return {"status": "error", "error": "No active browser session", "content": ""}
             page = session.page
             
             # === AGGRESSIVE DEBUG: Final selector before Playwright call ===

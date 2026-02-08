@@ -1,11 +1,25 @@
 {
   "date": "2026-02-08",
   "schema_version": 1,
-  "count": 1,
+  "count": 2,
   "facts": [
     {
       "fact_id": "a2aa3278-6368-48f7-b81a-ef6bf0099550",
       "timestamp": "2026-02-08T08:20:52.256301",
+      "tool": "system.apps.launch.shell",
+      "query": "open notepad",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    },
+    {
+      "fact_id": "e21ebd65-b540-4ea1-ae1b-c4d3b32567be",
+      "timestamp": "2026-02-08T13:30:27.267420",
       "tool": "system.apps.launch.shell",
       "query": "open notepad",
       "facts": {

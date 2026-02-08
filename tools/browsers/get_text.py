@@ -67,6 +67,11 @@ class GetText(Tool):
         return True
     
     @property
+    def requires_session(self) -> bool:
+        """GetText requires a session-backed page to query DOM."""
+        return True
+    
+    @property
     def schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
@@ -102,7 +107,12 @@ class GetText(Tool):
             from core.browser_session_manager import BrowserSessionManager
             
             manager = BrowserSessionManager.get()
-            session = manager.get_or_create(session_id=session_id)
+            if session_id:
+                session = manager.get_session(session_id)
+            else:
+                session = manager.get_or_create()
+            if not session or not session.is_active():
+                return {"status": "error", "error": "No active browser session", "failure_class": "logical", "content": ""}
             page = session.page
             
             # FAIL FAST: No waiting. Use query_selector, not wait_for_selector.
