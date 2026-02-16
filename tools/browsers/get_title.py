@@ -87,7 +87,7 @@ class GetTitle(Tool):
             
             # Get existing session
             if session_id:
-                session = manager.get_session(session_id)
+                session = manager.get_or_create(session_id=session_id)
             else:
                 session = manager.get_or_create()
             

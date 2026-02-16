@@ -108,11 +108,15 @@ class GetText(Tool):
             
             manager = BrowserSessionManager.get()
             if session_id:
-                session = manager.get_session(session_id)
+                session = manager.get_or_create(session_id=session_id)
             else:
                 session = manager.get_or_create()
-            if not session or not session.is_active():
+            if not session:
                 return {"status": "error", "error": "No active browser session", "failure_class": "logical", "content": ""}
+
+            # Ensure page is live (heal if needed)
+            if not getattr(session, "ensure_page", lambda: False)():
+                return {"status": "error", "error": "Browser session unrecoverable", "failure_class": "environmental", "content": ""}
             page = session.page
             
             # FAIL FAST: No waiting. Use query_selector, not wait_for_selector.

@@ -129,7 +129,38 @@ class PlaywrightEngine(AbstractBrowserBackend):
             return True
             
         except Exception as e:
-            logging.error(f"Navigation failed: {e}")
+            logging.error(f"Navigation raised exception: {e}")
+            # Attempt to inspect final page URL — navigation may have been
+            # superseded or completed despite the exception (Playwright races).
+            try:
+                final_url = None
+                try:
+                    final_url = page.url
+                except Exception:
+                    final_url = None
+
+                if final_url:
+                    # Normalized target for comparison
+                    targ = url if url.startswith(("http://", "https://")) else f"https://{url}"
+                    from urllib.parse import urlparse
+                    p_targ = urlparse(targ)
+                    p_final = urlparse(final_url)
+
+                    # Consider success if scheme/netloc/path match, or the final URL
+                    # clearly contains the target (conservative heuristics).
+                    same_site_path = (
+                        p_targ.scheme == p_final.scheme
+                        and p_targ.netloc == p_final.netloc
+                        and (p_targ.path == p_final.path)
+                    )
+                    if same_site_path or final_url.startswith(targ) or targ in final_url:
+                        logging.info(
+                            f"Navigation exception ignored because final URL matches target: {final_url}"
+                        )
+                        return True
+            except Exception as ex:
+                logging.debug(f"Error while inspecting final URL after navigation failure: {ex}")
+
             return False
     
     def get_url(self, page: Any) -> str:

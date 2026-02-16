@@ -63,5 +63,4 @@ tda:
 
 repair:
   provider: gemini
-  model: gemini-2.5-flash
-  temperature: 0.2  # Conservative for repair reasoning
+  model: gemini-2.5-flash # Conservative for repair reasoning

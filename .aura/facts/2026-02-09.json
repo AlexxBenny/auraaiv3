@@ -1,0 +1,21 @@
+{
+  "date": "2026-02-09",
+  "schema_version": 1,
+  "count": 1,
+  "facts": [
+    {
+      "fact_id": "595e58c4-15be-42e5-bc66-12e931005e39",
+      "timestamp": "2026-02-09T14:34:24.462487",
+      "tool": "system.apps.launch.shell",
+      "query": "open youtube",
+      "facts": {
+        "tool": "system.apps.launch.shell"
+      },
+      "fact_keys": [
+        "tool"
+      ],
+      "session_id": "unknown",
+      "schema_version": 1
+    }
+  ]
+}

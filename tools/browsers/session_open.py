@@ -95,7 +95,7 @@ class SessionOpen(Tool):
             manager = BrowserSessionManager.get()
             # If a specific session_id was requested, prefer attaching to it
             if session_id:
-                session = manager.get_session(session_id)
+                session = manager.get_or_create(session_id=session_id)
                 if session is None:
                     # fall through to create a new one with explicit id semantics
                     session = manager.get_or_create(session_id=session_id, browser_type=browser_type)
@@ -104,9 +104,19 @@ class SessionOpen(Tool):
             
             # Navigate if URL provided
             if url:
+                # Ensure page live before navigation
+                if not getattr(session, "ensure_page", lambda: False)():
+                    return {
+                        "status": "error",
+                        "error": "Browser session unrecoverable",
+                        "failure_class": "environmental",
+                        "content": ""
+                    }
                 from tools.browsers._engine.playwright import PlaywrightEngine
                 engine = PlaywrightEngine()
-                engine.navigate(session.page, url)
+                # Serialize navigations per-session to avoid race conditions
+                with session.nav_lock:
+                    engine.navigate(session.page, url)
             
             return {
                 "status": "success",

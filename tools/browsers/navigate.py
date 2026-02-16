@@ -98,26 +98,37 @@ class Navigate(Tool):
             
             # Prefer provided session_id (do NOT recreate); otherwise create default
             if session_id:
-                session = manager.get_session(session_id)
+                session = manager.get_or_create(session_id=session_id)
             else:
                 session = manager.get_or_create()
-            if not session or not session.is_active():
+            if not session:
                 return {
                     "status": "error",
                     "error": "No active browser session",
                     "failure_class": "logical",
                     "content": ""
                 }
+
+            # Ensure the session has a live page (attempt healing if user closed tab)
+            if not getattr(session, "ensure_page", lambda: False)():
+                return {
+                    "status": "error",
+                    "error": "Browser session unrecoverable",
+                    "failure_class": "environmental",
+                    "content": ""
+                }
             
             # Navigate using engine
             from tools.browsers._engine.playwright import PlaywrightEngine
             engine = PlaywrightEngine()
-            
-            success = engine.navigate(
-                session.page, 
-                url, 
-                timeout_ms=config.timeout_ms
-            )
+
+            # Serialize navigations per-session to avoid race conditions
+            with session.nav_lock:
+                success = engine.navigate(
+                    session.page,
+                    url,
+                    timeout_ms=config.timeout_ms
+                )
             
             if success:
                 final_url = engine.get_url(session.page)

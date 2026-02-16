@@ -34,6 +34,7 @@ class BrowserSession:
     context: Any = None  # Playwright BrowserContext
     browser: Any = None  # Playwright Browser instance
     headless: bool = False
+    nav_lock: Lock = field(default_factory=Lock, repr=False)
     
     def is_active(self) -> bool:
         """Check if session is still usable.
@@ -64,6 +65,61 @@ class BrowserSession:
             _ = self.context.pages
 
             return True
+        except Exception:
+            return False
+
+    def ensure_page(self) -> bool:
+        """Ensure the session has a live page, attempting to heal from context.
+
+        Returns True if the session has a usable page (either already valid or successfully created).
+        Returns False if the session cannot be healed (no context/browser).
+        """
+        try:
+            # If we have a context, reconcile cached page against context.pages first.
+            if self.context:
+                try:
+                    pages = list(getattr(self.context, "pages", []) or [])
+
+                    # 1) Cached page is valid only if it's still present in context.pages and not closed
+                    if self.page and any(self.page is p for p in pages):
+                        try:
+                            if not self.page.is_closed():
+                                return True
+                        except Exception:
+                            # Fall through to reconciliation/create
+                            pass
+
+                    # 2) Reattach to most-recent live page from context
+                    for p in reversed(pages):
+                        try:
+                            if not p.is_closed():
+                                self.page = p
+                                logging.info(
+                                    f"Healed session {self.session_id}: attached to existing context page"
+                                )
+                                return True
+                        except Exception:
+                            # Ignore per-page probe failures and continue
+                            continue
+
+                    # 3) No live page found in context — create a new one
+                    self.page = self.context.new_page()
+                    logging.info(
+                        f"Healed session {self.session_id}: created new page from context"
+                    )
+                    return True
+                except Exception as e:
+                    logging.info(
+                        f"Failed to heal session {self.session_id} from context: {e}"
+                    )
+                    return False
+
+            # If no context, fall back to cached page check
+            if self.page and not getattr(self.page, "is_closed", lambda: False)():
+                return True
+
+            # No context and no valid cached page -> unrecoverable
+            return False
         except Exception:
             return False
 
@@ -136,34 +192,16 @@ class BrowserSessionManager:
         # Check for existing active session
         if session_id in self._sessions:
             existing = self._sessions[session_id]
-            if existing.is_active():
-                logging.info(f"Reusing existing session: {session_id}")
-                return existing
-            else:
-                # Phase 2.1: Attempt recovery only if browser is still connected
-                # INVARIANT: Recovery is only possible if browser process is alive
-                can_recover = (
-                    existing.browser and 
-                    existing.browser.is_connected() and 
-                    existing.context
-                )
-                
-                if can_recover:
-                    try:
-                        # Context is the authority, page is ephemeral
-                        new_page = existing.context.new_page()
-                        existing.page = new_page
-                        logging.info(f"Recovered page in session {session_id} (context was still alive)")
-                        return existing
-                    except Exception as e:
-                        logging.info(f"Context also closed for session {session_id}: {e}")
+            # Try to ensure the session has a usable page; this will attempt healing via context.new_page()
+            try:
+                if existing.ensure_page():
+                    logging.info(f"Reusing existing session: {session_id}")
+                    return existing
                 else:
-                    logging.info(
-                        f"Session {session_id} not recoverable: "
-                        f"browser_connected={existing.browser and existing.browser.is_connected()}"
-                    )
-                
-                logging.info(f"Session {session_id} is stale, recreating")
+                    logging.info(f"Session {session_id} not recoverable, recreating")
+                    self._cleanup_session(session_id)
+            except Exception as e:
+                logging.info(f"Error while attempting to heal session {session_id}: {e}")
                 self._cleanup_session(session_id)
         
         # Create new session

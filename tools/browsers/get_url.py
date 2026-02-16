@@ -87,21 +87,30 @@ class GetUrl(Tool):
             
             # Get existing session (don't create new one for read)
             if session_id:
-                session = manager.get_session(session_id)
+                session = manager.get_or_create(session_id=session_id)
             else:
                 session = manager.get_or_create()
-            
-            if not session or not session.is_active():
+
+            if not session:
                 return {
                     "status": "error",
                     "error": "No active browser session",
                     "failure_class": "logical",  # Session doesn't exist (not retryable)
                     "content": ""
                 }
-            
+
+            # Ensure page is live (heal if needed)
+            if not getattr(session, "ensure_page", lambda: False)():
+                return {
+                    "status": "error",
+                    "error": "Browser session unrecoverable",
+                    "failure_class": "environmental",
+                    "content": ""
+                }
+
             from tools.browsers._engine.playwright import PlaywrightEngine
             engine = PlaywrightEngine()
-            
+
             url = engine.get_url(session.page)
             
             return {
